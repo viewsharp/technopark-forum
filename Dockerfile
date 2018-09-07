@@ -61,6 +61,8 @@ ADD db/ $GOPATH/src/github.com/viewsharp/TexPark_DBMSs/db/
 # Подтягиваем зависимости
 RUN go get github.com/valyala/fasthttp
 RUN go get github.com/buaazp/fasthttprouter
+RUN go get github.com/lib/pq
+RUN go get github.com/mailru/easyjson
 
 # Устанавливаем пакет
 RUN go install ./restapi

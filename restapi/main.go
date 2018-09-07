@@ -10,7 +10,7 @@ import (
 	"github.com/valyala/fasthttp"
 )
 
-var DSN = "host=127.0.0.1 port=5433 user=docker password=docker dbname=docker"
+var DSN = "host=127.0.0.1 port=5432 user=docker password=docker dbname=docker"
 
 func main() {
 	if len(os.Args) != 2 {
