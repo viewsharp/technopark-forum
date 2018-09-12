@@ -18,11 +18,11 @@ type Post struct {
 	Author   *string    `json:"author"`
 	Created  *time.Time `json:"created,omitempty"`
 	Forum    *string    `json:"forum,omitempty"`
-	Id       *int32       `json:"id,omitempty"`
+	Id       *int32     `json:"id,omitempty"`
 	IsEdited *bool      `json:"isEdited,omitempty"`
 	Message  *string    `json:"message"`
-	Parent   *int32       `json:"parent,omitempty"`
-	Thread   *int32       `json:"thread,omitempty"`
+	Parent   *int32     `json:"parent,omitempty"`
+	Thread   *int32     `json:"thread,omitempty"`
 }
 
 //easyjson:json
@@ -50,11 +50,11 @@ type Thread struct {
 	Author  *string    `json:"author"`
 	Created *time.Time `json:"created,omitempty"`
 	Forum   *string    `json:"forum,omitempty"`
-	Id      *int32       `json:"id,omitempty"`
+	Id      *int32     `json:"id,omitempty"`
 	Message *string    `json:"message"`
 	Slug    *string    `json:"slug,omitempty"`
 	Title   *string    `json:"title"`
-	Votes   *int32       `json:"votes,omitempty"`
+	Votes   *int32     `json:"votes,omitempty"`
 }
 
 //easyjson:json
@@ -83,5 +83,5 @@ type UserUpdate struct {
 
 type Vote struct {
 	Nickname *string `json:"nickname"`
-	Voice    *int32    `json:"voice"`
+	Voice    *int32  `json:"voice"`
 }

@@ -14,9 +14,7 @@ CREATE TABLE IF NOT EXISTS users (
 
 CREATE TABLE IF NOT EXISTS forums (
   --   id SERIAL PRIMARY KEY,
-  --   posts INTEGER,
   slug    CITEXT PRIMARY KEY,
-  --   threads INTEGER,
   title   TEXT                          NOT NULL,
   user_id INTEGER REFERENCES users (id) NOT NULL
 );
@@ -39,7 +37,6 @@ CREATE TABLE IF NOT EXISTS threads (
 CREATE TABLE IF NOT EXISTS posts (
   id        SERIAL PRIMARY KEY,
   created   TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
-  --   title     TEXT                            NOT NULL, ОТКУДА???
   isEdited  BOOLEAN                  DEFAULT FALSE,
   message   TEXT                            NOT NULL,
   --   votes INTEGER,
@@ -47,3 +44,12 @@ CREATE TABLE IF NOT EXISTS posts (
   user_id   INTEGER REFERENCES users (id)   NOT NULL,
   thread_id INTEGER REFERENCES threads (id) NOT NULL
 );
+
+----------- vote -----------
+
+CREATE TABLE IF NOT EXISTS votes (
+  thread_id INTEGER REFERENCES threads (id) NOT NULL,
+  user_id   INTEGER REFERENCES users (id)   NOT NULL,
+  voice     INTEGER,
+  CONSTRAINT votes_thread_user_unique UNIQUE (thread_id, user_id)
+)

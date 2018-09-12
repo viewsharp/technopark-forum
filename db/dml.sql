@@ -57,3 +57,37 @@ WHERE nickname = ?;
 ---------- posts ---------
 INSERT INTO posts (user_id, message, parent_id, thread_id)
 VALUES ((SELECT id FROM users WHERE nickname = ?), ?, ?, ?);
+
+---------- votes ----------
+INSERT INTO votes (thread_id, user_id, voice)
+VALUES (?, ?, ?)
+ON CONFLICT ON CONSTRAINT votes_thread_user_unique DO UPDATE SET thread_id = ?, user_id = ?, voice = ?;
+
+SELECT (SELECT count(*) FROM posts
+                               JOIN threads ON posts.thread_id = threads.id WHERE threads.forum_slug = ?) AS "posts",
+       slug,
+       (SELECT count(*) FROM threads WHERE threads.forum_slug = ?)                                        AS "threads",
+       title,
+       users.nickname
+FROM forums
+       JOIN users ON forums.user_id = users.id
+WHERE slug = ?;
+
+SELECT count(*)
+FROM posts
+       JOIN threads ON posts.thread_id = threads.id
+WHERE threads.forum_slug = ?;
+
+SELECT *
+FROM public.threads;
+
+
+WITH RECURSIVE recursetree (id, parent_id, name) AS (
+    SELECT id, parent_id, name FROM posts
+    WHERE parent_id = 0
+        UNION ALL
+        SELECT t.id, t.parent_id, t.name
+        FROM tree t
+                    JOIN recursetree rt ON rt.id = t.parent_id
+    )
+SELECT * FROM recursetree;

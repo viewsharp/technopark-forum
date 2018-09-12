@@ -115,7 +115,7 @@ func (hlr *Handler) GetForum(ctx *fasthttp.RequestCtx) (json.Marshaler, int) {
 	slug := ctx.UserValue("slug").(string)
 	var forum Forum
 
-	err := hlr.DB.QueryRow("SELECT 0 AS \"posts\", slug, 0 AS \"threads\", title, users.nickname FROM forums JOIN users ON forums.user_id = users.id WHERE slug = $1",
+	err := hlr.DB.QueryRow("SELECT (SELECT count(*) FROM posts JOIN threads ON posts.thread_id = threads.id WHERE threads.forum_slug = $1) AS \"posts\", slug, (SELECT count(*) FROM threads WHERE threads.forum_slug = $1) AS \"threads\", title, users.nickname FROM forums JOIN users ON forums.user_id = users.id WHERE slug = $1",
 		slug,
 	).Scan(&forum.Posts, &forum.Slug, &forum.Threads, &forum.Title, &forum.User)
 	if err != nil {
@@ -285,7 +285,34 @@ func (hlr *Handler) GetThreadPosts(ctx *fasthttp.RequestCtx) (json.Marshaler, in
 }
 
 func (hlr *Handler) CreateThreadVote(ctx *fasthttp.RequestCtx) (json.Marshaler, int) {
-	return nil, fasthttp.StatusOK
+	var vote Vote
+	err := vote.UnmarshalJSON(ctx.PostBody())
+	if err != nil {
+		return nil, fasthttp.StatusBadRequest
+	}
+
+	result, statusCode := hlr.GetThread(ctx)
+	if statusCode != 200 {
+		return result, statusCode
+	}
+	thread := result.(Thread)
+
+	_, err = hlr.DB.Exec(
+		"INSERT INTO votes (thread_id, user_id, voice) VALUES ($1, (SELECT id FROM users WHERE nickname = $2), $3) ON CONFLICT ON CONSTRAINT votes_thread_user_unique DO UPDATE SET voice = $3 WHERE votes.thread_id = $1 AND votes.user_id = (SELECT id FROM users WHERE nickname = $2);",
+		thread.Id, vote.Nickname, vote.Voice,
+	)
+	if err != nil {
+		return nil, fasthttp.StatusInternalServerError
+	}
+
+	err = hlr.DB.QueryRow("SELECT sum(voice) FROM votes WHERE thread_id = $1",
+		thread.Id,
+	).Scan(&thread.Votes)
+	if err != nil {
+		return nil, fasthttp.StatusInternalServerError
+	}
+
+	return thread, fasthttp.StatusOK
 }
 
 func (hlr *Handler) CreateUser(ctx *fasthttp.RequestCtx) (json.Marshaler, int) {
