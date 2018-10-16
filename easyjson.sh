@@ -1,0 +1,1 @@
+easyjson -all resources/forum/model.go resources/post/model.go resources/status/model.go resources/thread/model.go resources/user/model.go resources/vote/model.go

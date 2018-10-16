@@ -1,16 +1,17 @@
-FROM ubuntu:18.04
+FROM ubuntu:16.04
 
 MAINTAINER Vladimir V. Atamanov
-
-# Обвновление списка пакетов
-RUN apt-get -y update
-# RUN apt-get -y upgrade
 
 #
 # Установка postgresql
 #
+RUN apt-get -y update
+RUN apt-get -y install wget
+RUN echo 'deb http://apt.postgresql.org/pub/repos/apt/ xenial-pgdg main' >> /etc/apt/sources.list.d/pgdg.list
+RUN wget --quiet -O - https://www.postgresql.org/media/keys/ACCC4CF8.asc | apt-key add -
+RUN apt-get -y update
 ENV PGVER 10
-RUN apt-get install -y postgresql-$PGVER
+RUN apt-get -y install postgresql-$PGVER
 
 # Run the rest of the commands as the ``postgres`` user created by the ``postgres-$PGVER`` package when it was ``apt-get installed``
 USER postgres
@@ -55,19 +56,19 @@ ENV PATH $GOROOT/bin:$GOPATH/bin:/usr/local/go/bin:$PATH
 
 # Копируем исходный код в Docker-контейнер
 WORKDIR $GOPATH/src/github.com/viewsharp/TexPark_DBMSs/
-ADD restapi/ $GOPATH/src/github.com/viewsharp/TexPark_DBMSs/restapi/
-ADD db/ $GOPATH/src/github.com/viewsharp/TexPark_DBMSs/db/
+ADD ./ $GOPATH/src/github.com/viewsharp/TexPark_DBMSs/
 
 # Подтягиваем зависимости
-RUN go get github.com/valyala/fasthttp
-RUN go get github.com/buaazp/fasthttprouter
-RUN go get github.com/lib/pq
-RUN go get github.com/mailru/easyjson
+RUN go get \
+    github.com/valyala/fasthttp \
+    github.com/buaazp/fasthttprouter \
+    github.com/lib/pq \
+    github.com/mailru/easyjson
 
 # Устанавливаем пакет
-RUN go install ./restapi
+RUN go install .
 
 EXPOSE 5000
 
 CMD service postgresql start &&\
-    restapi 5000
+    TexPark_DBMSs 5000
