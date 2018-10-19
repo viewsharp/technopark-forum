@@ -85,9 +85,11 @@ func (s *Storage) ById(id int) (*Thread, error) {
 
 func (s *Storage) ByForumSlug(slug string, desc bool, since string, limit int) (*Threads, error) {
 	var queryBuilder strings.Builder
-	queryBuilder.WriteString(`	SELECT id, slug, created, title, message, 0, user_nn, forum_slug
-                					FROM threads
-									WHERE forum_slug = $1`)
+	queryBuilder.WriteString(`	SELECT t.id, t.slug, t.created, t.title, t.message, t.user_nn, t.forum_slug, sum(v.voice)
+            						FROM threads t
+										LEFT JOIN votes v on t.id = v.thread_id
+									WHERE forum_slug = $1
+									GROUP BY t.id`)
 
 	if since != "" {
 		if desc {
