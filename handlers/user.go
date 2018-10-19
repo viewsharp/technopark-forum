@@ -31,13 +31,22 @@ func (uh *UserHandler) Create(ctx *fasthttp.RequestCtx) (json.Marshaler, int) {
 		return obj, fasthttp.StatusCreated
 	case user.ErrUniqueViolation:
 		var result user.Users
-		userByEmail, _ := uh.sb.user.ByEmail(*obj.Email)
-		// TODO: handle error
-		result = append(result, userByEmail)
 
-		userByUsername, _ := uh.sb.user.ByNickname(*obj.Nickname)
-		// TODO: handle error
-		result = append(result, userByUsername)
+		// TODO: Make union
+
+		userByEmail, err := uh.sb.user.ByEmail(*obj.Email)
+		if err == nil {
+			result = append(result, userByEmail)
+		}
+
+		userByNickname, err := uh.sb.user.ByNickname(*obj.Nickname)
+		if err == nil {
+			if userByEmail == nil {
+				result = append(result, userByNickname)
+			} else if *userByNickname.Nickname != *userByEmail.Nickname {
+				result = append(result, userByNickname)
+			}
+		}
 
 		return result, fasthttp.StatusConflict
 	default:

@@ -2,10 +2,12 @@ package handlers
 
 import (
 	"encoding/json"
+	"fmt"
 	"github.com/valyala/fasthttp"
 	"github.com/viewsharp/TexPark_DBMSs/resources/post"
-	"github.com/viewsharp/TexPark_DBMSs/resources/user"
+	"github.com/viewsharp/TexPark_DBMSs/resources/thread"
 	"strconv"
+	"strings"
 )
 
 type PostHandler struct {
@@ -23,13 +25,35 @@ func (ph *PostHandler) Create(ctx *fasthttp.RequestCtx) (json.Marshaler, int) {
 		return nil, fasthttp.StatusBadRequest
 	}
 
+	slugOrId := ctx.UserValue("slug_or_id").(string)
+	threadId, threadIdParseErr := strconv.Atoi(slugOrId)
+
 	if len(posts) == 0 {
-		return posts, fasthttp.StatusCreated
+		if threadIdParseErr == nil {
+			_, err = ph.sb.thread.ById(threadId)
+		} else {
+			_, err = ph.sb.thread.BySlug(slugOrId)
+		}
+
+		switch err {
+		case nil:
+			return posts, fasthttp.StatusCreated
+		case thread.ErrNotFound:
+			if threadIdParseErr == nil {
+				return Error{
+					Message: fmt.Sprintf("Can't find post thread by id: %d", threadId),
+				}, fasthttp.StatusNotFound
+			} else {
+				return Error{
+					Message: "Can't find post thread by slug: " + slugOrId,
+				}, fasthttp.StatusNotFound
+			}
+		}
+
+		return nil, fasthttp.StatusInternalServerError
 	}
 
-	slugOrId := ctx.UserValue("slug_or_id").(string)
-	threadId, err := strconv.Atoi(slugOrId)
-	if err == nil {
+	if threadIdParseErr == nil {
 		err = ph.sb.post.AddByThreadId(&posts, threadId)
 	} else {
 		err = ph.sb.post.AddByThreadSlug(&posts, slugOrId)
@@ -38,6 +62,22 @@ func (ph *PostHandler) Create(ctx *fasthttp.RequestCtx) (json.Marshaler, int) {
 	switch err {
 	case nil:
 		return posts, fasthttp.StatusCreated
+	case post.ErrInvalidParent:
+		return Error{Message: "Parent post was created in another thread"}, fasthttp.StatusConflict
+	case post.ErrNotFoundUser:
+		return Error{
+			Message: "Can't find post author by nickname: " + err.(post.ErrNotFoundUserClass).GetNickname(),
+		}, fasthttp.StatusNotFound
+	case post.ErrNotFoundThread:
+		if threadIdParseErr == nil {
+			return Error{
+				Message: fmt.Sprintf("Can't find post thread by id: %d", threadId),
+			}, fasthttp.StatusNotFound
+		} else {
+			return Error{
+				Message: "Can't find post thread by slug: " + slugOrId,
+			}, fasthttp.StatusNotFound
+		}
 	}
 
 	return nil, fasthttp.StatusInternalServerError
@@ -50,12 +90,20 @@ func (ph *PostHandler) Get(ctx *fasthttp.RequestCtx) (json.Marshaler, int) {
 		return nil, fasthttp.StatusBadRequest
 	}
 
-	result, err := ph.sb.post.ById(postId)
+	var result *post.PostFull
+
+	related := ctx.QueryArgs().Peek("related")
+
+	if related == nil {
+		result, err = ph.sb.post.ById(postId, nil)
+	} else {
+		result, err = ph.sb.post.ById(postId, strings.Split(string(related), ","))
+	}
 
 	switch err {
 	case nil:
 		return result, fasthttp.StatusOK
-	case user.ErrNotFound:
+	case post.ErrNotFound:
 		return Error{
 			Message: "Can't find user by nickname: ",
 		}, fasthttp.StatusNotFound
@@ -94,7 +142,6 @@ func (ph *PostHandler) GetByThread(ctx *fasthttp.RequestCtx) (json.Marshaler, in
 		}
 	}
 
-
 	var err error
 	var posts post.Posts
 	switch string(ctx.QueryArgs().Peek("sort")) {
@@ -118,8 +165,57 @@ func (ph *PostHandler) GetByThread(ctx *fasthttp.RequestCtx) (json.Marshaler, in
 		}
 	}
 
-	if err == nil {
+	switch err {
+	case nil:
 		return posts, fasthttp.StatusOK
+	case post.ErrNotFoundThread:
+		if threadIdParseErr == nil {
+			return Error{
+				Message: fmt.Sprintf("Can't find thread by slug: %d", threadId),
+			}, fasthttp.StatusNotFound
+		} else {
+			return Error{
+				Message: "Can't find thread by slug: " + slugOrId,
+			}, fasthttp.StatusNotFound
+		}
+	}
+
+	return nil, fasthttp.StatusInternalServerError
+}
+
+func (ph *PostHandler) Update(ctx *fasthttp.RequestCtx) (json.Marshaler, int) {
+	var obj post.PostUpdate
+	err := obj.UnmarshalJSON(ctx.PostBody())
+	if err != nil {
+		return nil, fasthttp.StatusBadRequest
+	}
+
+	idString := ctx.UserValue("id").(string)
+	postId, err := strconv.Atoi(idString)
+	if err != nil {
+		return nil, fasthttp.StatusBadRequest
+	}
+
+	result, err := ph.sb.post.ById(postId, nil)
+	switch err {
+	case nil:
+		var err error = nil
+		if obj.Message != nil {
+			if *result.Post.Message != *obj.Message {
+				err = ph.sb.post.UpdateById(postId, obj)
+				result.Post.IsEdited = new(bool)
+				*result.Post.IsEdited = true
+				result.Post.Message = obj.Message
+			}
+		}
+
+		if err == nil {
+			return result.Post, fasthttp.StatusOK
+		}
+	case post.ErrNotFound:
+		return Error{
+			Message: fmt.Sprintf("Can't find post with id: %d", postId),
+		}, fasthttp.StatusNotFound
 	}
 
 	return nil, fasthttp.StatusInternalServerError

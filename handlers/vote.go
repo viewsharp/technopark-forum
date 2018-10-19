@@ -2,6 +2,7 @@ package handlers
 
 import (
 	"encoding/json"
+	"fmt"
 	"github.com/valyala/fasthttp"
 	"github.com/viewsharp/TexPark_DBMSs/resources/thread"
 	"github.com/viewsharp/TexPark_DBMSs/resources/vote"
@@ -29,18 +30,38 @@ func (vh *VoteHandler) Create(ctx *fasthttp.RequestCtx) (json.Marshaler, int) {
 
 	if err == nil {
 		err = vh.sb.vote.AddByThreadId(&obj, threadId)
-		if err != nil {
+		switch err {
+		case nil:
+			result, err = vh.sb.thread.ById(threadId)
+		case vote.ErrNotFoundThread:
+			return Error{
+				Message: fmt.Sprintf("Can't find thread by id: %d", threadId),
+			}, fasthttp.StatusNotFound
+		case vote.ErrNotFoundUser:
+			return Error{
+				Message: "Can't find user by nickname: " + *obj.Nickname,
+			}, fasthttp.StatusNotFound
+
+		default:
 			return nil, fasthttp.StatusInternalServerError
 		}
-
-		result, err = vh.sb.thread.ById(threadId)
 	} else {
 		err = vh.sb.vote.AddByThreadSlug(&obj, slugOrId)
-		if err != nil {
+		switch err {
+		case nil:
+			result, err = vh.sb.thread.BySlug(slugOrId)
+		case vote.ErrNotFoundThread:
+			return Error{
+				Message: "Can't find user by nickname: " + *obj.Nickname,
+			}, fasthttp.StatusNotFound
+		case vote.ErrNotFoundUser:
+			return Error{
+				Message: fmt.Sprintf("Can't find thread by id: %d", threadId),
+			}, fasthttp.StatusNotFound
+
+		default:
 			return nil, fasthttp.StatusInternalServerError
 		}
-
-		result, err = vh.sb.thread.BySlug(slugOrId)
 	}
 
 	switch err {

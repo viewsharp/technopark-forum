@@ -25,6 +25,7 @@ func GetHandler(handleFunc HandleFunc) fasthttp.RequestHandler {
 			return
 		}
 
+		ctx.Response.Header.Set("Content-Type", "application/json")
 		ctx.SetStatusCode(statusCode)
 		ctx.SetBody(body)
 	}
@@ -45,8 +46,12 @@ func (r *Router)GET(path string, handle HandleFunc)  {
 func NewRouter(sb *handlers.StorageBundle) Router {
 	router := Router{fasthttprouter.New()}
 
+	router.Handle("GET", "/api", func(ctx *fasthttp.RequestCtx) {
+		ctx.SetBody([]byte("[]"))
+	})
+
 	forumHandler := handlers.NewForumHandler(sb)
-	router.POST("/api/forum/:slug", forumHandler.Create) // "forum/create"
+	router.POST("/api/forum/:slug", forumHandler.Create) // "/api/forum/create"
 	router.GET("/api/forum/:slug/details", forumHandler.Get)
 
 	threadHandler := handlers.NewThreadHandler(sb)
@@ -64,6 +69,8 @@ func NewRouter(sb *handlers.StorageBundle) Router {
 	postHandler := handlers.NewPostHandler(sb)
 	router.POST("/api/thread/:slug_or_id/create", postHandler.Create)
 	router.GET("/api/thread/:slug_or_id/posts", postHandler.GetByThread)
+	router.GET("/api/post/:id/details", postHandler.Get)
+	router.POST("/api/post/:id/details", postHandler.Update)
 
 	voteHandler := handlers.NewVoteHandler(sb)
 	router.POST("/api/thread/:slug_or_id/vote", voteHandler.Create)

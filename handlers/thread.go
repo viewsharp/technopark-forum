@@ -2,9 +2,9 @@ package handlers
 
 import (
 	"encoding/json"
+	"fmt"
 	"github.com/valyala/fasthttp"
 	"github.com/viewsharp/TexPark_DBMSs/resources/thread"
-	"github.com/viewsharp/TexPark_DBMSs/resources/user"
 	"strconv"
 )
 
@@ -17,7 +17,7 @@ func NewThreadHandler(storageBundle *StorageBundle) *ThreadHandler {
 }
 
 func (th *ThreadHandler) Create(ctx *fasthttp.RequestCtx) (json.Marshaler, int) {
-	slug:=ctx.UserValue("slug").(string)
+	slug := ctx.UserValue("slug").(string)
 
 	var obj thread.Thread
 	err := obj.UnmarshalJSON(ctx.PostBody())
@@ -36,9 +36,9 @@ func (th *ThreadHandler) Create(ctx *fasthttp.RequestCtx) (json.Marshaler, int) 
 			return result, fasthttp.StatusConflict
 		}
 	case thread.ErrNotFoundUser:
-		return Error{Message:"Can't find thread author by nickname: " + *obj.Author}, fasthttp.StatusNotFound
+		return Error{Message: "Can't find thread author by nickname: " + *obj.Author}, fasthttp.StatusNotFound
 	case thread.ErrNotFoundForum:
-		return Error{Message:"Can't find thread forum by slug: " + *obj.Forum}, fasthttp.StatusNotFound
+		return Error{Message: "Can't find thread forum by slug: " + *obj.Forum}, fasthttp.StatusNotFound
 
 	}
 
@@ -72,7 +72,7 @@ func (th *ThreadHandler) GetByForum(ctx *fasthttp.RequestCtx) (json.Marshaler, i
 	case nil:
 		return result, fasthttp.StatusOK
 	case thread.ErrNotFoundForum:
-		return Error{Message:"Can't find forum by slug: " + slug}, fasthttp.StatusNotFound
+		return Error{Message: "Can't find forum by slug: " + slug}, fasthttp.StatusNotFound
 	}
 
 	return nil, fasthttp.StatusInternalServerError
@@ -80,15 +80,28 @@ func (th *ThreadHandler) GetByForum(ctx *fasthttp.RequestCtx) (json.Marshaler, i
 
 func (th *ThreadHandler) Get(ctx *fasthttp.RequestCtx) (json.Marshaler, int) {
 	var result *thread.Thread
+	var err error
 	slugOrId := ctx.UserValue("slug_or_id").(string)
-	threadId, err := strconv.Atoi(slugOrId)
-	if err == nil {
+	threadId, threadIdParseErr := strconv.Atoi(slugOrId)
+	if threadIdParseErr == nil {
 		result, err = th.sb.thread.ById(threadId)
 	} else {
 		result, err = th.sb.thread.BySlug(slugOrId)
 	}
-	if err == nil {
+
+	switch err {
+	case nil:
 		return result, fasthttp.StatusOK
+	case thread.ErrNotFound:
+		if threadIdParseErr == nil {
+			return Error{
+				Message: fmt.Sprintf("Can't find thread by id: %d", threadId),
+			}, fasthttp.StatusNotFound
+		} else {
+			return Error{
+				Message: "Can't find thread by slug: " + slugOrId,
+			}, fasthttp.StatusNotFound
+		}
 	}
 
 	return nil, fasthttp.StatusInternalServerError
@@ -109,8 +122,7 @@ func (th *ThreadHandler) Update(ctx *fasthttp.RequestCtx) (json.Marshaler, int) 
 		err = th.sb.thread.UpdateBySlug(slugOrId, &obj)
 	}
 
-	switch err {
-	case nil:
+	if err == nil {
 		var result *thread.Thread
 		if threadIdErr == nil {
 			result, err = th.sb.thread.ById(threadId)
@@ -118,12 +130,20 @@ func (th *ThreadHandler) Update(ctx *fasthttp.RequestCtx) (json.Marshaler, int) 
 			result, err = th.sb.thread.BySlug(slugOrId)
 		}
 
-		if err == nil {
+		switch err {
+		case nil:
 			return result, fasthttp.StatusOK
+		case thread.ErrNotFound:
+			if threadIdErr == nil {
+				return Error{
+					Message: fmt.Sprintf("Can't find thread by id: %d", threadId),
+				}, fasthttp.StatusNotFound
+			} else {
+				return Error{
+					Message: "Can't find thread by slug: " + slugOrId,
+				}, fasthttp.StatusNotFound
+			}
 		}
-	case user.ErrUniqueViolation:
-	case user.ErrNotFound:
 	}
-
 	return nil, fasthttp.StatusInternalServerError
 }

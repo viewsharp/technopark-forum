@@ -15,7 +15,7 @@ func NewForumHandler(storageBundle *StorageBundle) *ForumHandler {
 }
 
 func (fh *ForumHandler) Create(ctx *fasthttp.RequestCtx) (json.Marshaler, int) {
-	if string(ctx.Path()) != "/forum/create" {
+	if string(ctx.Path()) != "/api/forum/create" {
 		return nil, fasthttp.StatusNotFound
 	}
 

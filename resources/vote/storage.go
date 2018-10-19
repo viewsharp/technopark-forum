@@ -2,6 +2,7 @@ package vote
 
 import (
 	"database/sql"
+	"github.com/lib/pq"
 )
 
 type Storage struct {
@@ -15,12 +16,19 @@ func (s *Storage) AddByThreadId(vote *Vote, threadId int) error {
 			VALUES ($1, $2, $3) 
 			ON CONFLICT ON CONSTRAINT votes_thread_user_unique 
 			DO UPDATE SET voice = $3
-				WHERE votes.thread_id = $1 AND votes.user_nn = $2;`,
+				WHERE votes.thread_id = (SELECT id FROM threads WHERE id = $1) AND votes.user_nn = $2;`,
 		threadId, vote.Nickname, vote.Voice,
 	)
 
 	if err == nil {
 		return nil
+	}
+
+	switch err.(*pq.Error).Code.Name() {
+	case "foreign_key_violation":
+		return ErrNotFoundUser
+	case "not_null_violation":
+		return ErrNotFoundThread
 	}
 
 	return ErrUnknown
@@ -39,6 +47,13 @@ func (s *Storage) AddByThreadSlug(vote *Vote, threadSlug string) error {
 
 	if err == nil {
 		return nil
+	}
+
+	switch err.(*pq.Error).Code.Name() {
+	case "foreign_key_violation":
+		return ErrNotFoundUser
+	case "not_null_violation":
+		return ErrNotFoundThread
 	}
 
 	return ErrUnknown

@@ -30,10 +30,11 @@ func (fh *ServiceHandler) Status(ctx *fasthttp.RequestCtx) (json.Marshaler, int)
 }
 
 func (fh *ServiceHandler) Clear(ctx *fasthttp.RequestCtx) (json.Marshaler, int) {
-	//_, err := fh.sb.DB().Exec("TRUNCATE votes, posts, threads, forums, users")
+	_, err := fh.sb.DB().Exec("TRUNCATE votes, posts, threads, forums, users")
 
-	//if err == nil {
-	//	return nil, fasthttp.StatusOK
-	//}
+	if err == nil {
+		return nil, fasthttp.StatusOK
+	}
+
 	return nil, fasthttp.StatusInternalServerError
 }

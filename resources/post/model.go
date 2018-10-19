@@ -1,6 +1,11 @@
 package post
 
-import "time"
+import (
+	"github.com/viewsharp/TexPark_DBMSs/resources/forum"
+	"github.com/viewsharp/TexPark_DBMSs/resources/thread"
+	"github.com/viewsharp/TexPark_DBMSs/resources/user"
+	"time"
+)
 
 type Post struct {
 	Author   *string    `json:"author"`
@@ -16,12 +21,12 @@ type Post struct {
 //easyjson:json
 type Posts []*Post
 
-//type PostFull struct {
-//	Author *User
-//	Forum  *Forum
-//	Post   *Post
-//	Thread *Thread
-//}
+type PostFull struct {
+	Author *user.User     `json:"author,omitempty"`
+	Forum  *forum.Forum   `json:"forum,omitempty"`
+	Post   *Post          `json:"post,omitempty"`
+	Thread *thread.Thread `json:"thread,omitempty"`
+}
 
 type PostUpdate struct {
 	Message *string `json:"message,omitempty"`
