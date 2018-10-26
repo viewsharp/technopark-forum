@@ -2,7 +2,6 @@ package user
 
 import (
 	"database/sql"
-	"fmt"
 	"github.com/lib/pq"
 	"strings"
 )
@@ -103,34 +102,26 @@ func (s *Storage) UpdateByNickname(nickname string, user *UserUpdate) error {
 
 func (s *Storage)ByForumSlug(slug string, desc bool, since string, limit int) (*Users, error) {
 	var queryBuilder strings.Builder
-	queryBuilder.WriteString(`	SELECT *
-									FROM (SELECT u.nickname, u.fullname, u.email, u.about
-										FROM users u
-									        JOIN threads t ON u.nickname = t.user_nn
-									    WHERE t.forum_slug = $1
-									    UNION
-									    SELECT u.nickname, u.fullname, u.email, u.about
-									    FROM users u
-									        JOIN posts p ON u.nickname = p.user_nn
-									    	JOIN threads t ON t.id = p.thread_id
-									    WHERE t.forum_slug = $1) forum_users`)
+	queryBuilder.WriteString(
+		`	SELECT u.nickname, u.fullname, u.email, u.about
+				FROM forum_user fu
+					JOIN users u ON fu.user_nn = u.nickname
+				WHERE fu.forum_slug = $1`)
 
 	if since != "" {
 		if desc {
-			queryBuilder.WriteString(` WHERE nickname COLLATE "ucs_basic" < $3 COLLATE "ucs_basic"`)
+			queryBuilder.WriteString(" AND nickname < $3")
 		} else {
-			queryBuilder.WriteString(` WHERE nickname COLLATE "ucs_basic" > $3 COLLATE "ucs_basic"`)
+			queryBuilder.WriteString(" AND nickname > $3")
 		}
 	}
 
-	queryBuilder.WriteString(` ORDER BY nickname COLLATE "ucs_basic"`)
+	queryBuilder.WriteString(" ORDER BY nickname")
 	if desc {
 		queryBuilder.WriteString(" DESC")
 	}
 
 	queryBuilder.WriteString(" LIMIT $2")
-
-	fmt.Println(queryBuilder.String())
 
 	var rows *sql.Rows
 	var err error

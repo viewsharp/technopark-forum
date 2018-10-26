@@ -30,12 +30,12 @@ func (fh *ForumHandler) Create(ctx *fasthttp.RequestCtx) (json.Marshaler, int) {
 	case nil:
 		return obj, fasthttp.StatusCreated
 	case forum.ErrUniqueViolation:
-		result, err := fh.sb.forum.BySlug(obj.Slug)
+		result, err := fh.sb.forum.BySlug(*obj.Slug)
 		if err == nil {
 			return result, fasthttp.StatusConflict
 		}
 	case forum.ErrNotFoundUser:
-		return Error{Message: "Can't find user with nickname: " + obj.User}, fasthttp.StatusNotFound
+		return Error{Message: "Can't find user with nickname: " + *obj.User}, fasthttp.StatusNotFound
 	}
 
 	return nil, fasthttp.StatusInternalServerError

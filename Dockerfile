@@ -2,9 +2,7 @@ FROM ubuntu:16.04
 
 MAINTAINER Vladimir V. Atamanov
 
-#
 # Установка postgresql
-#
 RUN apt-get -y update
 RUN apt-get -y install wget
 RUN echo 'deb http://apt.postgresql.org/pub/repos/apt/ xenial-pgdg main' >> /etc/apt/sources.list.d/pgdg.list
@@ -41,10 +39,6 @@ VOLUME  ["/etc/postgresql", "/var/log/postgresql", "/var/lib/postgresql"]
 
 # Back to the root user
 USER root
-
-#
-# Сборка проекта
-#
 
 # Установка golang
 RUN apt install -y golang-1.10 git

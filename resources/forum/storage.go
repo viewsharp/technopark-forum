@@ -58,9 +58,9 @@ func (s *Storage) FullBySlug(slug string) (*Forum, error) {
 
 	err := s.DB.QueryRow(
 		`	SELECT 
-					(SELECT count(*) FROM posts JOIN threads ON posts.thread_id = threads.id WHERE threads.forum_slug = $1),
+					posts,
                 	slug,
-                	(SELECT count(*) FROM threads WHERE threads.forum_slug = $1),
+                	threads,
                 	title,
                 	user_nn
             	FROM forums

@@ -37,15 +37,55 @@ func easyjsonC80ae7adDecodeGithubComViewsharpTexParkDBMSsResourcesForum(in *jlex
 		}
 		switch key {
 		case "posts":
-			out.Posts = int32(in.Int32())
+			if in.IsNull() {
+				in.Skip()
+				out.Posts = nil
+			} else {
+				if out.Posts == nil {
+					out.Posts = new(int32)
+				}
+				*out.Posts = int32(in.Int32())
+			}
 		case "slug":
-			out.Slug = string(in.String())
+			if in.IsNull() {
+				in.Skip()
+				out.Slug = nil
+			} else {
+				if out.Slug == nil {
+					out.Slug = new(string)
+				}
+				*out.Slug = string(in.String())
+			}
 		case "threads":
-			out.Threads = int32(in.Int32())
+			if in.IsNull() {
+				in.Skip()
+				out.Threads = nil
+			} else {
+				if out.Threads == nil {
+					out.Threads = new(int32)
+				}
+				*out.Threads = int32(in.Int32())
+			}
 		case "title":
-			out.Title = string(in.String())
+			if in.IsNull() {
+				in.Skip()
+				out.Title = nil
+			} else {
+				if out.Title == nil {
+					out.Title = new(string)
+				}
+				*out.Title = string(in.String())
+			}
 		case "user":
-			out.User = string(in.String())
+			if in.IsNull() {
+				in.Skip()
+				out.User = nil
+			} else {
+				if out.User == nil {
+					out.User = new(string)
+				}
+				*out.User = string(in.String())
+			}
 		default:
 			in.SkipRecursive()
 		}
@@ -60,7 +100,7 @@ func easyjsonC80ae7adEncodeGithubComViewsharpTexParkDBMSsResourcesForum(out *jwr
 	out.RawByte('{')
 	first := true
 	_ = first
-	if in.Posts != 0 {
+	{
 		const prefix string = ",\"posts\":"
 		if first {
 			first = false
@@ -68,7 +108,11 @@ func easyjsonC80ae7adEncodeGithubComViewsharpTexParkDBMSsResourcesForum(out *jwr
 		} else {
 			out.RawString(prefix)
 		}
-		out.Int32(int32(in.Posts))
+		if in.Posts == nil {
+			out.RawString("null")
+		} else {
+			out.Int32(int32(*in.Posts))
+		}
 	}
 	{
 		const prefix string = ",\"slug\":"
@@ -78,9 +122,13 @@ func easyjsonC80ae7adEncodeGithubComViewsharpTexParkDBMSsResourcesForum(out *jwr
 		} else {
 			out.RawString(prefix)
 		}
-		out.String(string(in.Slug))
+		if in.Slug == nil {
+			out.RawString("null")
+		} else {
+			out.String(string(*in.Slug))
+		}
 	}
-	if in.Threads != 0 {
+	{
 		const prefix string = ",\"threads\":"
 		if first {
 			first = false
@@ -88,7 +136,11 @@ func easyjsonC80ae7adEncodeGithubComViewsharpTexParkDBMSsResourcesForum(out *jwr
 		} else {
 			out.RawString(prefix)
 		}
-		out.Int32(int32(in.Threads))
+		if in.Threads == nil {
+			out.RawString("null")
+		} else {
+			out.Int32(int32(*in.Threads))
+		}
 	}
 	{
 		const prefix string = ",\"title\":"
@@ -98,7 +150,11 @@ func easyjsonC80ae7adEncodeGithubComViewsharpTexParkDBMSsResourcesForum(out *jwr
 		} else {
 			out.RawString(prefix)
 		}
-		out.String(string(in.Title))
+		if in.Title == nil {
+			out.RawString("null")
+		} else {
+			out.String(string(*in.Title))
+		}
 	}
 	{
 		const prefix string = ",\"user\":"
@@ -108,7 +164,11 @@ func easyjsonC80ae7adEncodeGithubComViewsharpTexParkDBMSsResourcesForum(out *jwr
 		} else {
 			out.RawString(prefix)
 		}
-		out.String(string(in.User))
+		if in.User == nil {
+			out.RawString("null")
+		} else {
+			out.String(string(*in.User))
+		}
 	}
 	out.RawByte('}')
 }

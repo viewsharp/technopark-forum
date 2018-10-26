@@ -9,10 +9,12 @@ import (
 	"github.com/viewsharp/TexPark_DBMSs/resources/user"
 	"regexp"
 	"strings"
+	"sync"
 )
 
 type Storage struct {
-	DB *sql.DB
+	DB           *sql.DB
+	postInsertMX sync.Mutex
 }
 
 var regexInvalidAuthor, _ = regexp.Compile(`^Key \(user_nn\)=\(([\w\.]+)\) is not present in table "users"\.$`)
@@ -64,22 +66,27 @@ func (s *Storage) AddByThreadId(posts *Posts, threadId int) error {
 
 func (s *Storage) add(posts *Posts, threadId int, forumSlug string) error {
 	queryParams := make([]interface{}, 0, 4*len(*posts))
-
 	var queryBuilder strings.Builder
-	queryBuilder.WriteString(`	INSERT INTO posts (user_nn, message, parent_id, thread_id)
-									VALUES `)
 
-	for i, post := range *posts {
-		if i != 0 {
+	queryBuilder.WriteString("INSERT INTO posts (user_nn, message, parent_id, thread_id, path) VALUES")
+	count := 0
+
+	for _, post := range *posts {
+		if count != 0 {
 			queryBuilder.WriteString(",")
 		}
 		if post.Parent == nil {
-			queryBuilder.WriteString(fmt.Sprintf(" ($%d, $%d, $%d, $%d)", i*4+1, i*4+2, i*4+3, i*4+4))
+			queryBuilder.WriteString(fmt.Sprintf(" ($%d, $%d, NULL, $%d, NULL)", count+1, count+2, count+3))
+			queryParams = append(queryParams, post.Author, post.Message, threadId)
+			count += 3
 		} else {
-			queryBuilder.WriteString(fmt.Sprintf(" ($%d, $%d, $%d, (SELECT thread_id FROM posts WHERE id = $%d AND thread_id = $%d))", i*4+1, i*4+2, i*4+3, i*4+3, i*4+4))
+			queryBuilder.WriteString(fmt.Sprintf(" ($%d, $%d, $%d, "+
+				"(SELECT thread_id FROM posts WHERE id = $%d AND thread_id = $%d), "+
+				"(SELECT path || id FROM posts WHERE id = $%d AND thread_id = $%d))",
+				count+1, count+2, count+3, count+3, count+4, count+3, count+4))
+			queryParams = append(queryParams, post.Author, post.Message, post.Parent, threadId)
+			count += 4
 		}
-
-		queryParams = append(queryParams, post.Author, post.Message, post.Parent, threadId)
 	}
 	queryBuilder.WriteString(" RETURNING id, created, thread_id")
 
@@ -97,7 +104,14 @@ func (s *Storage) add(posts *Posts, threadId int, forumSlug string) error {
 	}
 	defer rows.Close()
 
-	for i, _ := range *posts {
+	_, err = s.DB.Exec("UPDATE forums SET posts = posts+$1 WHERE slug = $2", len(*posts), forumSlug)
+	if err != nil {
+		panic(err)
+	}
+
+	go s.addInsertForumUsers(posts, forumSlug)
+
+	for i := range *posts {
 		rows.Next()
 		post := (*posts)[i]
 
@@ -111,6 +125,34 @@ func (s *Storage) add(posts *Posts, threadId int, forumSlug string) error {
 	return nil
 }
 
+func (s *Storage) addInsertForumUsers(posts *Posts, forumSlug string) {
+	queryParams := make([]interface{}, 0, 2*len(*posts))
+	var queryBuilder strings.Builder
+
+	queryBuilder.WriteString("INSERT INTO forum_user (forum_slug, user_nn) VALUES")
+	count := 0
+
+	for _, post := range *posts {
+		if count != 0 {
+			queryBuilder.WriteString(",")
+		}
+		queryBuilder.WriteString(fmt.Sprintf(" ($%d, $%d)", count+1, count+2))
+		queryParams = append(queryParams, forumSlug, post.Author)
+		count += 2
+	}
+
+	queryBuilder.WriteString(" ON CONFLICT DO NOTHING")
+
+	s.postInsertMX.Lock()
+
+	_, err := s.DB.Exec(queryBuilder.String(), queryParams...)
+	if err != nil {
+		panic(err)
+	}
+
+	s.postInsertMX.Unlock()
+}
+
 func (s *Storage) ById(id int, related []string) (*PostFull, error) {
 	userObj := user.User{}
 	forumObj := forum.Forum{}
@@ -121,11 +163,9 @@ func (s *Storage) ById(id int, related []string) (*PostFull, error) {
 	err := s.DB.QueryRow(
 		`	SELECT 
 					u.about, u.email, u.fullname, u.nickname, 
-					(SELECT count(*) FROM posts JOIN threads ON posts.thread_id = threads.id WHERE threads.id = t.id),
-                	f.slug,
-                	(SELECT count(*) FROM threads WHERE threads.id = t.id), f.title, f.user_nn, 
+					f.posts, f.slug, f.threads, f.title, f.user_nn, 
 					p.user_nn, p.created, f.slug, p.id, p.isedited, p.message, p.parent_id, p.thread_id,
-					t.user_nn, t.created, f.slug, t.id, t.message, t.slug, t.title, (SELECT count(*) FROM votes WHERE votes.thread_id = t.id)  as votes
+					t.user_nn, t.created, f.slug, t.id, t.message, t.slug, t.title, t.votes
 				FROM posts p
 					JOIN users u on p.user_nn = u.nickname
 					JOIN threads t on p.thread_id = t.id
@@ -149,7 +189,6 @@ func (s *Storage) ById(id int, related []string) (*PostFull, error) {
 				result.Thread = &threadObj
 			case "forum":
 				result.Forum = &forumObj
-
 			}
 		}
 		return &result, nil
@@ -238,28 +277,21 @@ func (s *Storage) FlatByThreadId(id int, limit int, desc bool, since int) (Posts
 func (s *Storage) TreeByThreadSlug(slug string, limit int, desc bool, since int) (Posts, error) {
 	var queryBuilder strings.Builder
 	queryBuilder.WriteString(
-		`	WITH RECURSIVE recurseposts (user_nn, created, forum_slug, id, message, parent_id, thread_id, path) AS (
-					SELECT p.user_nn, p.created, t.forum_slug, p.id, p.message, p.parent_id, p.thread_id, ARRAY[p.id] as path
-    				FROM posts p
-    					JOIN threads t on p.thread_id = t.id
-    				WHERE p.parent_id is NULL AND t.slug = $1
-    				UNION ALL
-    					SELECT p.user_nn, p.created, rp.forum_slug, p.id, p.message, p.parent_id, p.thread_id, rp.path || p.id
-    					FROM posts p
-    						JOIN recurseposts rp ON rp.id = p.parent_id)
-				SELECT rp.user_nn, rp.created, rp.forum_slug, rp.id, rp.message, rp.parent_id, rp.thread_id
-    			FROM recurseposts rp`,
+		`	SELECT p.user_nn, p.created, t.forum_slug, p.id, p.message, p.parent_id, p.thread_id
+    			FROM posts p JOIN threads t ON t.id = p.thread_id`,
 	)
 
 	if since != 0 {
 		if desc {
-			queryBuilder.WriteString(" JOIN recurseposts ON recurseposts.id = $3 WHERE rp.path < recurseposts.path")
+			queryBuilder.WriteString(" JOIN posts ON posts.id = $3 WHERE p.path || p.id < posts.path || posts.id")
 		} else {
-			queryBuilder.WriteString(" JOIN recurseposts ON recurseposts.id = $3 WHERE rp.path > recurseposts.path")
+			queryBuilder.WriteString(" JOIN posts ON posts.id = $3 WHERE p.path || p.id > posts.path || posts.id")
 		}
+		queryBuilder.WriteString(" AND t.slug = $1 ORDER BY p.path || p.id")
+	} else {
+		queryBuilder.WriteString(" WHERE t.slug = $1 ORDER BY p.path || p.id")
 	}
 
-	queryBuilder.WriteString(" ORDER BY rp.path")
 	if desc {
 		queryBuilder.WriteString(" DESC")
 	}
@@ -271,28 +303,21 @@ func (s *Storage) TreeByThreadSlug(slug string, limit int, desc bool, since int)
 func (s *Storage) TreeByThreadId(id int, limit int, desc bool, since int) (Posts, error) {
 	var queryBuilder strings.Builder
 	queryBuilder.WriteString(
-		`	WITH RECURSIVE recurseposts (user_nn, created, forum_slug, id, message, parent_id, thread_id, path) AS (
-					SELECT p.user_nn, p.created, t.forum_slug, p.id, p.message, p.parent_id, p.thread_id, ARRAY[p.id] as path
-    				FROM posts p
-    					JOIN threads t on p.thread_id = t.id
-    				WHERE p.parent_id is NULL AND t.id = $1
-					UNION ALL
-    					SELECT p.user_nn, p.created, rp.forum_slug, p.id, p.message, p.parent_id, p.thread_id, rp.path || p.id
-    					FROM posts p
-							JOIN recurseposts rp ON rp.id = p.parent_id)
-				SELECT rp.user_nn, rp.created, rp.forum_slug, rp.id, rp.message, rp.parent_id, rp.thread_id
-				FROM recurseposts rp`,
+		`	SELECT p.user_nn, p.created, (SELECT forum_slug FROM threads WHERE id = $1), p.id, p.message, p.parent_id, p.thread_id
+    			FROM posts p`,
 	)
 
 	if since != 0 {
 		if desc {
-			queryBuilder.WriteString(" JOIN recurseposts ON recurseposts.id = $3 WHERE rp.path < recurseposts.path")
+			queryBuilder.WriteString(" JOIN posts ON posts.id = $3 WHERE p.path || p.id < posts.path || posts.id")
 		} else {
-			queryBuilder.WriteString(" JOIN recurseposts ON recurseposts.id = $3 WHERE rp.path > recurseposts.path")
+			queryBuilder.WriteString(" JOIN posts ON posts.id = $3 WHERE p.path || p.id > posts.path || posts.id")
 		}
+		queryBuilder.WriteString(" AND p.thread_id = $1 ORDER BY p.path || p.id")
+	} else {
+		queryBuilder.WriteString(" WHERE p.thread_id = $1 ORDER BY p.path || p.id")
 	}
 
-	queryBuilder.WriteString(" ORDER BY rp.path")
 	if desc {
 		queryBuilder.WriteString(" DESC")
 	}
@@ -300,73 +325,53 @@ func (s *Storage) TreeByThreadId(id int, limit int, desc bool, since int) (Posts
 
 	return s.byId(queryBuilder.String(), id, limit, since)
 }
-
 func (s *Storage) ParentTreeByThreadSlug(slug string, limit int, desc bool, since int) (Posts, error) {
 	var queryBuilder strings.Builder
-	queryBuilder.WriteString(`WITH RECURSIVE recurseposts (user_nn, created, forum_slug, id, message, parent_id, thread_id, path, rank) AS (
-									 SELECT p.user_nn, p.created, t.forum_slug, p.id, p.message, p.parent_id, p.thread_id, ARRAY[p.id] as path, row_number() OVER`)
+	queryBuilder.WriteString("WITH ranked_posts AS (SELECT p.user_nn, p.created, t.forum_slug, p.id, p.message, p.parent_id, p.thread_id,p.path || p.id AS path,")
 
 	if desc {
-		queryBuilder.WriteString(" (ORDER BY p.id DESC)")
+		queryBuilder.WriteString(" dense_rank() over (ORDER BY COALESCE(path [1], p.id) desc) AS rank")
 	} else {
-		queryBuilder.WriteString(" (ORDER BY p.id)")
+		queryBuilder.WriteString(" dense_rank() over (ORDER BY COALESCE(path [1], p.id)) AS rank")
 	}
-
 	queryBuilder.WriteString(
-		`FROM posts p
-				JOIN threads t on p.thread_id = t.id
-			WHERE p.parent_id is NULL AND t.slug = $1
-			UNION ALL
-				SELECT p.user_nn, p.created, rp.forum_slug, p.id, p.message, p.parent_id, p.thread_id, rp.path || p.id, rp.rank
-				FROM posts p
-					JOIN recurseposts rp ON rp.id = p.parent_id)
-			SELECT rp.user_nn, rp.created, rp.forum_slug, rp.id, rp.message, rp.parent_id, rp.thread_id
-			FROM recurseposts rp`)
+		`	FROM posts p JOIN threads t on p.thread_id = t.id WHERE t.slug = $1)
+				SELECT p.user_nn, p.created, p.forum_slug, p.id, p.message, p.parent_id, p.thread_id 
+				FROM ranked_posts p`)
 
 	if since != 0 {
-
-		queryBuilder.WriteString(`	JOIN recurseposts ON recurseposts.id = $3 
-									WHERE rp.rank <= $2 + recurseposts.rank AND (rp.rank > recurseposts.rank OR rp.rank = recurseposts.rank AND rp.path > recurseposts.path) 
-									ORDER BY rp.rank, rp.path`)
+		queryBuilder.WriteString(
+			`	JOIN ranked_posts posts ON posts.id = $3 
+				WHERE p.rank <= $2 + posts.rank AND (p.rank > posts.rank OR p.rank = posts.rank AND p.path > posts.path) 
+				ORDER BY p.rank, p.path`)
 	} else {
-		queryBuilder.WriteString(`	WHERE rp.rank <= $2 
-									ORDER BY rp.rank, rp.path`)
+		queryBuilder.WriteString(" WHERE p.rank <= $2 ORDER BY p.rank, p.path")
 	}
 
 	return s.bySlug(queryBuilder.String(), slug, limit, since)
 }
 
 func (s *Storage) ParentTreeByThreadId(id int, limit int, desc bool, since int) (Posts, error) {
-
 	var queryBuilder strings.Builder
-	queryBuilder.WriteString(`WITH RECURSIVE recurseposts (user_nn, created, forum_slug, id, message, parent_id, thread_id, path, rank) AS (
-									 SELECT p.user_nn, p.created, t.forum_slug, p.id, p.message, p.parent_id, p.thread_id, ARRAY[p.id] as path, row_number() OVER`)
+	queryBuilder.WriteString("WITH ranked_posts AS (SELECT p.user_nn, p.created, t.forum_slug, p.id, p.message, p.parent_id, p.thread_id,p.path || p.id AS path,")
 
 	if desc {
-		queryBuilder.WriteString(" (ORDER BY p.id DESC)")
+		queryBuilder.WriteString(" dense_rank() over (ORDER BY COALESCE(path [1], p.id) desc) AS rank")
 	} else {
-		queryBuilder.WriteString(" (ORDER BY p.id)")
+		queryBuilder.WriteString(" dense_rank() over (ORDER BY COALESCE(path [1], p.id)) AS rank")
 	}
-
 	queryBuilder.WriteString(
-		`FROM posts p
-				JOIN threads t on p.thread_id = t.id
-			WHERE p.parent_id is NULL AND t.id = $1
-			UNION ALL
-				SELECT p.user_nn, p.created, rp.forum_slug, p.id, p.message, p.parent_id, p.thread_id, rp.path || p.id, rp.rank
-				FROM posts p
-					JOIN recurseposts rp ON rp.id = p.parent_id)
-			SELECT rp.user_nn, rp.created, rp.forum_slug, rp.id, rp.message, rp.parent_id, rp.thread_id
-			FROM recurseposts rp`)
+		`	FROM posts p JOIN threads t on p.thread_id = t.id WHERE t.id = $1)
+				SELECT p.user_nn, p.created, p.forum_slug, p.id, p.message, p.parent_id, p.thread_id 
+				FROM ranked_posts p`)
 
 	if since != 0 {
-
-		queryBuilder.WriteString(`	JOIN recurseposts ON recurseposts.id = $3 
-									WHERE rp.rank <= $2 + recurseposts.rank AND (rp.rank > recurseposts.rank OR rp.rank = recurseposts.rank AND rp.path > recurseposts.path) 
-									ORDER BY rp.rank, rp.path`)
+		queryBuilder.WriteString(
+			`	JOIN ranked_posts posts ON posts.id = $3 
+				WHERE p.rank <= $2 + posts.rank AND (p.rank > posts.rank OR p.rank = posts.rank AND p.path > posts.path) 
+				ORDER BY p.rank, p.path`)
 	} else {
-		queryBuilder.WriteString(`	WHERE rp.rank <= $2 
-									ORDER BY rp.rank, rp.path`)
+		queryBuilder.WriteString(" WHERE p.rank <= $2 ORDER BY p.rank, p.path")
 	}
 
 	return s.byId(queryBuilder.String(), id, limit, since)

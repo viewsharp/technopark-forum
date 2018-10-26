@@ -3,12 +3,10 @@ package main
 import (
 	"database/sql"
 	"fmt"
-	"github.com/viewsharp/TexPark_DBMSs/handlers"
-	"log"
-	"os"
-
 	_ "github.com/lib/pq"
 	"github.com/valyala/fasthttp"
+	"github.com/viewsharp/TexPark_DBMSs/handlers"
+	"os"
 )
 
 var DSN = "host=127.0.0.1 port=5432 user=docker password=docker dbname=docker"
@@ -29,8 +27,10 @@ func main() {
 	router := NewRouter(handlers.NewStorageBundle(db))
 
 	fmt.Printf("starting server at: %s\n", port)
-	log.Fatal(fasthttp.ListenAndServe(":"+port, func(ctx *fasthttp.RequestCtx) {
-		router.Handler(ctx)
-		fmt.Printf("%d [%s] %s\n", ctx.Response.Header.StatusCode(), ctx.Method(), ctx.Path())
-	}))
+	fasthttp.ListenAndServe(":"+port, router.Handler)
+	//log.Fatal(fasthttp.ListenAndServe(":"+port, func(ctx *fasthttp.RequestCtx) {
+	//	t := time.Now()
+	//	router.Handler(ctx)
+	//	fmt.Printf("%d\t[%s]\t{%v}\t%s\n", ctx.Response.Header.StatusCode(), ctx.Method(), time.Since(t), ctx.URI())
+	//}))
 }
