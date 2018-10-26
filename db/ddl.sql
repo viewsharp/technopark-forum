@@ -9,9 +9,6 @@ CREATE TABLE IF NOT EXISTS users (
   about    TEXT
 );
 
-CREATE INDEX users_nickname
-  ON users (nickname);
-
 --------------------------------------- forums ---------------------------------------
 
 CREATE TABLE IF NOT EXISTS forums (
@@ -32,9 +29,6 @@ CREATE TABLE forum_user (-- Denormalization
   user_nn    CITEXT COLLATE "ucs_basic",
   PRIMARY KEY (user_nn, forum_slug)
 );
-
-CREATE INDEX forum_user_index
-  ON forum_user (forum_slug, user_nn);
 
 --------------------------------------- threads ---------------------------------------
 
@@ -85,8 +79,8 @@ CREATE TABLE IF NOT EXISTS posts (
 
 CREATE INDEX posts_user_index
   ON posts (user_nn);
-CREATE INDEX posts_thread_index
-  ON posts (thread_id);
+CREATE INDEX posts_thread_created_index
+  ON posts (thread_id, created);
 
 --------------------------------------- vote ---------------------------------------
 
