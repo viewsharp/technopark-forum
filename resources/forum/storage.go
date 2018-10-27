@@ -34,10 +34,7 @@ func (s *Storage) Add(forum *Forum) error {
 func (s *Storage) BySlug(slug string) (*Forum, error) {
 	var result Forum
 
-	err := s.DB.QueryRow(
-		`	SELECT slug, title, user_nn
-            	FROM forums
-              	WHERE slug = $1`,
+	err := s.DB.QueryRow("SELECT slug, title, user_nn FROM forums WHERE slug = $1",
 		slug,
 	).Scan(&result.Slug, &result.Title, &result.User)
 
@@ -57,14 +54,7 @@ func (s *Storage) FullBySlug(slug string) (*Forum, error) {
 	var result Forum
 
 	err := s.DB.QueryRow(
-		`	SELECT 
-					posts,
-                	slug,
-                	threads,
-                	title,
-                	user_nn
-            	FROM forums
-            	WHERE slug = $1`,
+		"SELECT posts, slug, threads, title, user_nn FROM forums WHERE slug = $1",
 		slug,
 	).Scan(&result.Posts, &result.Slug, &result.Threads, &result.Title, &result.User)
 

@@ -3,11 +3,14 @@ CREATE EXTENSION IF NOT EXISTS CITEXT;
 --------------------------------------- users ---------------------------------------
 
 CREATE TABLE IF NOT EXISTS users (
+  id       SERIAL,
   nickname CITEXT COLLATE "ucs_basic" PRIMARY KEY,
   fullname TEXT   NOT NULL,
   email    CITEXT NOT NULL UNIQUE,
   about    TEXT
 );
+
+CREATE INDEX users__id ON users(id);
 
 --------------------------------------- forums ---------------------------------------
 
@@ -19,15 +22,12 @@ CREATE TABLE IF NOT EXISTS forums (
   threads INTEGER DEFAULT 0 -- Denormalization
 );
 
-CREATE INDEX forums_index
-  ON forums (user_nn);
-
 --------------------------------------- forum_user ---------------------------------------
 
 CREATE TABLE forum_user (-- Denormalization
   forum_slug CITEXT,
-  user_nn    CITEXT COLLATE "ucs_basic",
-  PRIMARY KEY (user_nn, forum_slug)
+  user_id    INTEGER,
+  PRIMARY KEY (user_id, forum_slug)
 );
 
 --------------------------------------- threads ---------------------------------------
@@ -38,21 +38,21 @@ CREATE TABLE IF NOT EXISTS threads (
   created    TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
   title      TEXT                                 NOT NULL,
   message    TEXT,
-  votes      INTEGER DEFAULT 0,
+  votes      INTEGER                  DEFAULT 0,
   user_nn    CITEXT REFERENCES users (nickname)   NOT NULL,
   forum_slug CITEXT REFERENCES forums (slug)      NOT NULL
 );
 
-CREATE INDEX threads_user_index
-  ON threads (user_nn);
-CREATE INDEX threads_forum_index
-  ON threads (forum_slug);
+CREATE INDEX threads__forum_created
+  ON threads (forum_slug, created);
 
 CREATE OR REPLACE FUNCTION threadInsert()
   RETURNS TRIGGER AS
 $BODY$
 BEGIN
-  INSERT INTO forum_user (forum_slug, user_nn) VALUES (new.forum_slug, new.user_nn) ON CONFLICT DO NOTHING;
+  INSERT INTO forum_user (forum_slug, user_id)
+  VALUES (new.forum_slug, (SELECT id FROM users WHERE nickname = new.user_nn))
+  ON CONFLICT DO NOTHING;
   UPDATE forums SET threads = threads + 1 WHERE slug = new.forum_slug;
   RETURN new;
 END;
@@ -77,10 +77,8 @@ CREATE TABLE IF NOT EXISTS posts (
   path      INTEGER ARRAY
 );
 
-CREATE INDEX posts_user_index
-  ON posts (user_nn);
-CREATE INDEX posts_thread_created_index
-  ON posts (thread_id, created);
+CREATE INDEX posts__thread_id_created
+  ON posts (thread_id, id, created);
 
 --------------------------------------- vote ---------------------------------------
 
@@ -90,9 +88,6 @@ CREATE TABLE IF NOT EXISTS votes (
   voice     INTEGER,
   CONSTRAINT votes_thread_user_unique UNIQUE (thread_id, user_nn)
 );
-
-CREATE INDEX votes_user_index
-  ON votes (thread_id, voice);
 
 CREATE OR REPLACE FUNCTION voteUpdate()
   RETURNS TRIGGER AS

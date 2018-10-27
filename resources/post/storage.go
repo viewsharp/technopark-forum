@@ -45,11 +45,7 @@ func (s *Storage) AddByThreadSlug(posts *Posts, slug string) error {
 func (s *Storage) AddByThreadId(posts *Posts, threadId int) error {
 	var forumSlug string
 
-	err := s.DB.QueryRow(
-		`	SELECT forum_slug
-            	FROM threads
-              	WHERE id = $1`,
-		threadId,
+	err := s.DB.QueryRow("SELECT forum_slug FROM threads WHERE id = $1", threadId,
 	).Scan(&forumSlug)
 
 	if err == nil {
@@ -129,14 +125,14 @@ func (s *Storage) addInsertForumUsers(posts *Posts, forumSlug string) {
 	queryParams := make([]interface{}, 0, 2*len(*posts))
 	var queryBuilder strings.Builder
 
-	queryBuilder.WriteString("INSERT INTO forum_user (forum_slug, user_nn) VALUES")
+	queryBuilder.WriteString("INSERT INTO forum_user (forum_slug, user_id) VALUES")
 	count := 0
 
 	for _, post := range *posts {
 		if count != 0 {
 			queryBuilder.WriteString(",")
 		}
-		queryBuilder.WriteString(fmt.Sprintf(" ($%d, $%d)", count+1, count+2))
+		queryBuilder.WriteString(fmt.Sprintf(" ($%d, (SELECT id FROM users WHERE nickname = $%d))", count+1, count+2))
 		queryParams = append(queryParams, forumSlug, post.Author)
 		count += 2
 	}

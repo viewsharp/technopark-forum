@@ -12,9 +12,7 @@ type Storage struct {
 
 func (s *Storage) Add(user *User) error {
 	_, err := s.DB.Exec(
-		`
-			INSERT INTO users (nickname, fullname, email, about) 
-			VALUES ($1, $2, $3, $4)`,
+		"INSERT INTO users (nickname, fullname, email, about)	VALUES ($1, $2, $3, $4)",
 		user.Nickname, user.FullName, user.Email, user.About,
 	)
 
@@ -34,9 +32,7 @@ func (s *Storage) ByNickname(nickname string) (*User, error) {
 	var result User
 
 	err := s.DB.QueryRow(
-		` SELECT nickname, fullname, email, about 
-				FROM users 
-				WHERE nickname = $1 `,
+		"SELECT nickname, fullname, email, about FROM users WHERE nickname = $1",
 		nickname,
 	).Scan(&result.Nickname, &result.FullName, &result.Email, &result.About)
 
@@ -55,11 +51,7 @@ func (s *Storage) ByNickname(nickname string) (*User, error) {
 func (s *Storage) ByEmail(email string) (*User, error) {
 	var result User
 
-	err := s.DB.QueryRow(
-		`	SELECT nickname, fullname, email, about 
-				FROM users 
-				WHERE email = $1`,
-		email,
+	err := s.DB.QueryRow("SELECT nickname, fullname, email, about FROM users WHERE email = $1", email,
 	).Scan(&result.Nickname, &result.FullName, &result.Email, &result.About)
 
 	if err == nil {
@@ -76,10 +68,10 @@ func (s *Storage) ByEmail(email string) (*User, error) {
 
 func (s *Storage) UpdateByNickname(nickname string, user *UserUpdate) error {
 	err := s.DB.QueryRow(
-		`	UPDATE users 
-				SET fullname = COALESCE($1, fullname), email = COALESCE($2, email), about = COALESCE($3, about) 
-				WHERE nickname = $4
-				RETURNING fullname, email, about`,
+		"UPDATE users " +
+			"SET fullname = COALESCE($1, fullname), email = COALESCE($2, email), about = COALESCE($3, about) " +
+			"WHERE nickname = $4 " +
+			"RETURNING fullname, email, about",
 		user.FullName, user.Email, user.About, nickname,
 	).Scan(&user.FullName, &user.Email, &user.About)
 
@@ -100,13 +92,13 @@ func (s *Storage) UpdateByNickname(nickname string, user *UserUpdate) error {
 	return ErrUnknown
 }
 
-func (s *Storage)ByForumSlug(slug string, desc bool, since string, limit int) (*Users, error) {
+func (s *Storage) ByForumSlug(slug string, desc bool, since string, limit int) (*Users, error) {
 	var queryBuilder strings.Builder
 	queryBuilder.WriteString(
-		`	SELECT u.nickname, u.fullname, u.email, u.about
-				FROM forum_user fu
-					JOIN users u ON fu.user_nn = u.nickname
-				WHERE fu.forum_slug = $1`)
+		"SELECT u.nickname, u.fullname, u.email, u.about " +
+			"FROM forum_user fu " +
+			"JOIN users u ON fu.user_id = u.id " +
+			"WHERE fu.forum_slug = $1")
 
 	if since != "" {
 		if desc {
@@ -147,7 +139,6 @@ func (s *Storage)ByForumSlug(slug string, desc bool, since string, limit int) (*
 
 		result = append(result, &user)
 	}
-
 
 	if len(result) == 0 {
 		var forumSlug *string
