@@ -2,7 +2,6 @@ package main
 
 import (
 	"database/sql"
-	"fmt"
 	"log"
 	"os"
 	"time"
@@ -11,30 +10,34 @@ import (
 	"github.com/valyala/fasthttp"
 	"github.com/viewsharp/technopark-forum/internal/handlers"
 	"github.com/viewsharp/technopark-forum/internal/router"
+	"go.uber.org/zap"
 )
 
-var DSN = "host=127.0.0.1 port=5432 user=postgres password=postgres dbname=tp-forum sslmode=disable"
+var ServerAddr = os.Getenv("SERVER_ADDR")
+var PostgresDSN = os.Getenv("POSTGRES_DSN")
 
 func main() {
-	if len(os.Args) != 2 {
-		fmt.Println("The program accepts one argument <port>")
-		return
-	}
-	port := os.Args[1]
+	logger, _ := zap.NewProduction()
+	defer logger.Sync()
 
-	db, err := sql.Open("postgres", DSN)
+	db, err := sql.Open("postgres", PostgresDSN)
 	err = db.Ping() // вот тут будет первое подключение к базе
 	if err != nil {
-		panic(err)
+		log.Fatal(err)
 	}
 
 	serverRouter := router.New(handlers.NewStorageBundle(db))
 
-	fmt.Printf("starting server at: %s\n", port)
-	//fasthttp.ListenAndServe(":"+port, serverRouter.Handler)
-	log.Fatal(fasthttp.ListenAndServe(":"+port, func(ctx *fasthttp.RequestCtx) {
+	log.Printf("starting server at: %s\n", ServerAddr)
+	log.Fatal(fasthttp.ListenAndServe(ServerAddr, func(ctx *fasthttp.RequestCtx) {
 		t := time.Now()
 		serverRouter.Handler(ctx)
-		fmt.Printf("%d\t[%s]\t{%v}\t%s\n", ctx.Response.Header.StatusCode(), ctx.Method(), time.Since(t), ctx.URI())
+		logger.Info(
+			"handled",
+			zap.Int("status", ctx.Response.Header.StatusCode()),
+			zap.ByteString("method", ctx.Method()),
+			zap.Duration("duration", time.Since(t)),
+			zap.ByteString("uri", ctx.Request.Header.RequestURI()),
+		)
 	}))
 }

@@ -12,6 +12,7 @@
 *.out
 
 .idea
+.env.*
 bin
 data
 vendor
