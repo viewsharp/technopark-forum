@@ -1,7 +1,6 @@
 package handlers
 
 import (
-	"encoding/json"
 	"fmt"
 	"github.com/valyala/fasthttp"
 	post2 "github.com/viewsharp/technopark-forum/internal/resources/post"
@@ -18,9 +17,9 @@ func NewPostHandler(storageBundle *StorageBundle) *PostHandler {
 	return &PostHandler{sb: storageBundle}
 }
 
-func (ph *PostHandler) Create(ctx *fasthttp.RequestCtx) (json.Marshaler, int) {
+func (ph *PostHandler) Create(ctx *fasthttp.RequestCtx) (interface{}, int) {
 	posts := make(post2.Posts, 0, 1)
-	err := posts.UnmarshalJSON(ctx.PostBody())
+	err := json.Unmarshal(ctx.PostBody(), &posts)
 	if err != nil {
 		return nil, fasthttp.StatusBadRequest
 	}
@@ -83,7 +82,7 @@ func (ph *PostHandler) Create(ctx *fasthttp.RequestCtx) (json.Marshaler, int) {
 	return nil, fasthttp.StatusInternalServerError
 }
 
-func (ph *PostHandler) Get(ctx *fasthttp.RequestCtx) (json.Marshaler, int) {
+func (ph *PostHandler) Get(ctx *fasthttp.RequestCtx) (interface{}, int) {
 	idString := ctx.UserValue("id").(string)
 	postId, err := strconv.Atoi(idString)
 	if err != nil {
@@ -112,7 +111,7 @@ func (ph *PostHandler) Get(ctx *fasthttp.RequestCtx) (json.Marshaler, int) {
 	return nil, fasthttp.StatusInternalServerError
 }
 
-func (ph *PostHandler) GetByThread(ctx *fasthttp.RequestCtx) (json.Marshaler, int) {
+func (ph *PostHandler) GetByThread(ctx *fasthttp.RequestCtx) (interface{}, int) {
 	slugOrId := ctx.UserValue("slug_or_id").(string)
 	threadId, threadIdParseErr := strconv.Atoi(slugOrId)
 
@@ -183,9 +182,9 @@ func (ph *PostHandler) GetByThread(ctx *fasthttp.RequestCtx) (json.Marshaler, in
 	return nil, fasthttp.StatusInternalServerError
 }
 
-func (ph *PostHandler) Update(ctx *fasthttp.RequestCtx) (json.Marshaler, int) {
+func (ph *PostHandler) Update(ctx *fasthttp.RequestCtx) (interface{}, int) {
 	var obj post2.PostUpdate
-	err := obj.UnmarshalJSON(ctx.PostBody())
+	err := json.Unmarshal(ctx.PostBody(), &obj)
 	if err != nil {
 		return nil, fasthttp.StatusBadRequest
 	}

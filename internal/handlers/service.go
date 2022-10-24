@@ -1,7 +1,6 @@
 package handlers
 
 import (
-	"encoding/json"
 	"github.com/valyala/fasthttp"
 	"github.com/viewsharp/technopark-forum/internal/resources/status"
 )
@@ -14,7 +13,7 @@ func NewServiceHandler(storageBundle *StorageBundle) *ServiceHandler {
 	return &ServiceHandler{sb: storageBundle}
 }
 
-func (fh *ServiceHandler) Status(ctx *fasthttp.RequestCtx) (json.Marshaler, int) {
+func (fh *ServiceHandler) Status(ctx *fasthttp.RequestCtx) (interface{}, int) {
 	var result status.Status
 	err := fh.sb.DB().QueryRow(`	SELECT (SELECT count(*) FROM forums),
 											(SELECT count(*) FROM posts),
@@ -29,7 +28,7 @@ func (fh *ServiceHandler) Status(ctx *fasthttp.RequestCtx) (json.Marshaler, int)
 	return nil, fasthttp.StatusInternalServerError
 }
 
-func (fh *ServiceHandler) Clear(ctx *fasthttp.RequestCtx) (json.Marshaler, int) {
+func (fh *ServiceHandler) Clear(ctx *fasthttp.RequestCtx) (interface{}, int) {
 	_, err := fh.sb.DB().Exec("TRUNCATE votes, posts, threads, forums, users, forum_user")
 	//
 	if err == nil {

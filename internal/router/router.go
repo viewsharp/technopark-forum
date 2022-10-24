@@ -1,24 +1,26 @@
 package router
 
 import (
-	"encoding/json"
 	"github.com/buaazp/fasthttprouter"
+	jsoniter "github.com/json-iterator/go"
 	"github.com/valyala/fasthttp"
 	"github.com/viewsharp/technopark-forum/internal/handlers"
 )
 
-type HandleFunc func(ctx *fasthttp.RequestCtx) (json.Marshaler, int)
+var json = jsoniter.ConfigFastest
+
+type HandleFunc func(ctx *fasthttp.RequestCtx) (interface{}, int)
 
 func GetHandler(handleFunc HandleFunc) fasthttp.RequestHandler {
 	return func(ctx *fasthttp.RequestCtx) {
-		request, statusCode := handleFunc(ctx)
+		responseData, statusCode := handleFunc(ctx)
 
-		if request == nil {
+		if responseData == nil {
 			ctx.SetStatusCode(statusCode)
 			return
 		}
 
-		body, err := request.MarshalJSON()
+		body, err := json.Marshal(&responseData)
 		if err != nil {
 			ctx.SetStatusCode(fasthttp.StatusInternalServerError)
 			ctx.SetBody([]byte(err.Error()))

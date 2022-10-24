@@ -1,7 +1,6 @@
 package handlers
 
 import (
-	"encoding/json"
 	"fmt"
 	"github.com/valyala/fasthttp"
 	thread2 "github.com/viewsharp/technopark-forum/internal/resources/thread"
@@ -16,11 +15,11 @@ func NewThreadHandler(storageBundle *StorageBundle) *ThreadHandler {
 	return &ThreadHandler{sb: storageBundle}
 }
 
-func (th *ThreadHandler) Create(ctx *fasthttp.RequestCtx) (json.Marshaler, int) {
+func (th *ThreadHandler) Create(ctx *fasthttp.RequestCtx) (interface{}, int) {
 	slug := ctx.UserValue("slug").(string)
 
 	var obj thread2.Thread
-	err := obj.UnmarshalJSON(ctx.PostBody())
+	err := json.Unmarshal(ctx.PostBody(), &obj)
 	if err != nil {
 		return nil, fasthttp.StatusBadRequest
 	}
@@ -45,7 +44,7 @@ func (th *ThreadHandler) Create(ctx *fasthttp.RequestCtx) (json.Marshaler, int) 
 	return nil, fasthttp.StatusInternalServerError
 }
 
-func (th *ThreadHandler) GetByForum(ctx *fasthttp.RequestCtx) (json.Marshaler, int) {
+func (th *ThreadHandler) GetByForum(ctx *fasthttp.RequestCtx) (interface{}, int) {
 	slug := ctx.UserValue("slug").(string)
 
 	limit := 1000
@@ -78,7 +77,7 @@ func (th *ThreadHandler) GetByForum(ctx *fasthttp.RequestCtx) (json.Marshaler, i
 	return nil, fasthttp.StatusInternalServerError
 }
 
-func (th *ThreadHandler) Get(ctx *fasthttp.RequestCtx) (json.Marshaler, int) {
+func (th *ThreadHandler) Get(ctx *fasthttp.RequestCtx) (interface{}, int) {
 	var result *thread2.Thread
 	var err error
 	slugOrId := ctx.UserValue("slug_or_id").(string)
@@ -107,9 +106,9 @@ func (th *ThreadHandler) Get(ctx *fasthttp.RequestCtx) (json.Marshaler, int) {
 	return nil, fasthttp.StatusInternalServerError
 }
 
-func (th *ThreadHandler) Update(ctx *fasthttp.RequestCtx) (json.Marshaler, int) {
+func (th *ThreadHandler) Update(ctx *fasthttp.RequestCtx) (interface{}, int) {
 	var obj thread2.ThreadUpdate
-	err := obj.UnmarshalJSON(ctx.PostBody())
+	err := json.Unmarshal(ctx.PostBody(), &obj)
 	if err != nil {
 		return nil, fasthttp.StatusBadRequest
 	}

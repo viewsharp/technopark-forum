@@ -1,7 +1,6 @@
 package handlers
 
 import (
-	"encoding/json"
 	"github.com/valyala/fasthttp"
 	forum2 "github.com/viewsharp/technopark-forum/internal/resources/forum"
 )
@@ -14,13 +13,13 @@ func NewForumHandler(storageBundle *StorageBundle) *ForumHandler {
 	return &ForumHandler{sb: storageBundle}
 }
 
-func (fh *ForumHandler) Create(ctx *fasthttp.RequestCtx) (json.Marshaler, int) {
+func (fh *ForumHandler) Create(ctx *fasthttp.RequestCtx) (interface{}, int) {
 	if string(ctx.Path()) != "/api/forum/create" {
 		return nil, fasthttp.StatusNotFound
 	}
 
 	var obj forum2.Forum
-	err := obj.UnmarshalJSON(ctx.PostBody())
+	err := json.Unmarshal(ctx.PostBody(), &obj)
 	if err != nil {
 		return nil, fasthttp.StatusBadRequest
 	}
@@ -41,7 +40,7 @@ func (fh *ForumHandler) Create(ctx *fasthttp.RequestCtx) (json.Marshaler, int) {
 	return nil, fasthttp.StatusInternalServerError
 }
 
-func (fh *ForumHandler) Get(ctx *fasthttp.RequestCtx) (json.Marshaler, int) {
+func (fh *ForumHandler) Get(ctx *fasthttp.RequestCtx) (interface{}, int) {
 	slug := ctx.UserValue("slug").(string)
 
 	result, err := fh.sb.forum.FullBySlug(slug)

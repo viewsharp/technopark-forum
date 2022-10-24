@@ -1,7 +1,6 @@
 package handlers
 
 import (
-	"encoding/json"
 	"fmt"
 	"github.com/valyala/fasthttp"
 	"github.com/viewsharp/technopark-forum/internal/resources/thread"
@@ -17,9 +16,9 @@ func NewVoteHandler(storageBundle *StorageBundle) *VoteHandler {
 	return &VoteHandler{sb: storageBundle}
 }
 
-func (vh *VoteHandler) Create(ctx *fasthttp.RequestCtx) (json.Marshaler, int) {
+func (vh *VoteHandler) Create(ctx *fasthttp.RequestCtx) (interface{}, int) {
 	var obj vote2.Vote
-	err := obj.UnmarshalJSON(ctx.PostBody())
+	err := json.Unmarshal(ctx.PostBody(), &obj)
 	if err != nil {
 		return nil, fasthttp.StatusBadRequest
 	}

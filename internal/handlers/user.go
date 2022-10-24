@@ -1,7 +1,6 @@
 package handlers
 
 import (
-	"encoding/json"
 	"github.com/valyala/fasthttp"
 	user2 "github.com/viewsharp/technopark-forum/internal/resources/user"
 	"strconv"
@@ -15,9 +14,9 @@ func NewUserHandler(storageBundle *StorageBundle) *UserHandler {
 	return &UserHandler{sb: storageBundle}
 }
 
-func (uh *UserHandler) Create(ctx *fasthttp.RequestCtx) (json.Marshaler, int) {
+func (uh *UserHandler) Create(ctx *fasthttp.RequestCtx) (interface{}, int) {
 	var obj user2.User
-	err := obj.UnmarshalJSON(ctx.PostBody())
+	err := json.Unmarshal(ctx.PostBody(), &obj)
 	if err != nil {
 		return nil, fasthttp.StatusBadRequest
 	}
@@ -55,7 +54,7 @@ func (uh *UserHandler) Create(ctx *fasthttp.RequestCtx) (json.Marshaler, int) {
 
 }
 
-func (uh *UserHandler) Get(ctx *fasthttp.RequestCtx) (json.Marshaler, int) {
+func (uh *UserHandler) Get(ctx *fasthttp.RequestCtx) (interface{}, int) {
 	nickname := ctx.UserValue("nickname").(string)
 
 	result, err := uh.sb.user.ByNickname(nickname)
@@ -72,11 +71,11 @@ func (uh *UserHandler) Get(ctx *fasthttp.RequestCtx) (json.Marshaler, int) {
 	return nil, fasthttp.StatusInternalServerError
 }
 
-func (uh *UserHandler) Update(ctx *fasthttp.RequestCtx) (json.Marshaler, int) {
+func (uh *UserHandler) Update(ctx *fasthttp.RequestCtx) (interface{}, int) {
 	nickname := ctx.UserValue("nickname").(string)
 
 	var obj user2.UserUpdate
-	err := obj.UnmarshalJSON(ctx.PostBody())
+	err := json.Unmarshal(ctx.PostBody(), &obj)
 	if err != nil {
 		return nil, fasthttp.StatusBadRequest
 	}
@@ -103,7 +102,7 @@ func (uh *UserHandler) Update(ctx *fasthttp.RequestCtx) (json.Marshaler, int) {
 	return nil, fasthttp.StatusInternalServerError
 }
 
-func (uh *UserHandler) GetByForum(ctx *fasthttp.RequestCtx) (json.Marshaler, int) {
+func (uh *UserHandler) GetByForum(ctx *fasthttp.RequestCtx) (interface{}, int) {
 	slug := ctx.UserValue("slug").(string)
 
 	limit := 1000
