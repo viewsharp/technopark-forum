@@ -12,3 +12,6 @@
 *.out
 
 .idea
+bin
+data
+vendor
