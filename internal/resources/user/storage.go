@@ -2,12 +2,20 @@ package user
 
 import (
 	"database/sql"
-	"github.com/lib/pq"
+	"fmt"
 	"strings"
+
+	"github.com/lib/pq"
 )
 
+type DB interface {
+	Exec(query string, args ...any) (sql.Result, error)
+	QueryRow(query string, args ...any) *sql.Row
+	Query(query string, args ...any) (*sql.Rows, error)
+}
+
 type Storage struct {
-	DB *sql.DB
+	DB DB
 }
 
 func (s *Storage) Add(user *User) error {
@@ -15,17 +23,14 @@ func (s *Storage) Add(user *User) error {
 		"INSERT INTO users (nickname, fullname, email, about)	VALUES ($1, $2, $3, $4)",
 		user.Nickname, user.FullName, user.Email, user.About,
 	)
-
-	if err == nil {
-		return nil
+	if err != nil {
+		if err.(*pq.Error).Code.Name() == "unique_violation" {
+			return ErrUniqueViolation
+		}
+		return fmt.Errorf("insert user: %w", err)
 	}
 
-	switch err.(*pq.Error).Code.Name() {
-	case "unique_violation":
-		return ErrUniqueViolation
-	default:
-		return ErrUnknown
-	}
+	return nil
 }
 
 func (s *Storage) ByNickname(nickname string) (*User, error) {
@@ -35,61 +40,46 @@ func (s *Storage) ByNickname(nickname string) (*User, error) {
 		"SELECT nickname, fullname, email, about FROM users WHERE nickname = $1",
 		nickname,
 	).Scan(&result.Nickname, &result.FullName, &result.Email, &result.About)
-
-	if err == nil {
-		return &result, nil
+	if err != nil {
+		if err.Error() == "sql: no rows in result set" {
+			return nil, ErrNotFound
+		}
+		return nil, fmt.Errorf("select user: %w", err)
 	}
 
-	switch err.Error() {
-	case "sql: no rows in result set":
-		return nil, ErrNotFound
-	}
-
-	return nil, ErrUnknown
+	return &result, nil
 }
 
 func (s *Storage) ByEmail(email string) (*User, error) {
 	var result User
 
-	err := s.DB.QueryRow("SELECT nickname, fullname, email, about FROM users WHERE email = $1", email,
-	).Scan(&result.Nickname, &result.FullName, &result.Email, &result.About)
-
-	if err == nil {
-		return &result, nil
+	err := s.DB.QueryRow("SELECT nickname, fullname, email, about FROM users WHERE email = $1", email).Scan(&result.Nickname, &result.FullName, &result.Email, &result.About)
+	if err != nil {
+		return nil, fmt.Errorf("select user: %w", err)
 	}
 
-	switch err.Error() {
-	case "sql: no rows in result set":
-		return nil, ErrNotFound
-	}
-
-	return nil, ErrUnknown
+	return &result, nil
 }
 
 func (s *Storage) UpdateByNickname(nickname string, user *UserUpdate) error {
 	err := s.DB.QueryRow(
-		"UPDATE users " +
-			"SET fullname = COALESCE($1, fullname), email = COALESCE($2, email), about = COALESCE($3, about) " +
-			"WHERE nickname = $4 " +
+		"UPDATE users "+
+			"SET fullname = COALESCE($1, fullname), email = COALESCE($2, email), about = COALESCE($3, about) "+
+			"WHERE nickname = $4 "+
 			"RETURNING fullname, email, about",
 		user.FullName, user.Email, user.About, nickname,
 	).Scan(&user.FullName, &user.Email, &user.About)
-
-	if err == nil {
-		return nil
+	if err != nil {
+		if pgError, ok := err.(*pq.Error); ok && pgError.Code.Name() == "unique_violation" {
+			return ErrUniqueViolation
+		}
+		if err.Error() == "sql: no rows in result set" {
+			return ErrNotFound
+		}
+		return fmt.Errorf("insert user: %w", err)
 	}
 
-	switch err.Error() {
-	case "sql: no rows in result set":
-		return ErrNotFound
-	}
-
-	switch err.(*pq.Error).Code.Name() {
-	case "unique_violation":
-		return ErrUniqueViolation
-	}
-
-	return ErrUnknown
+	return nil
 }
 
 func (s *Storage) ByForumSlug(slug string, desc bool, since string, limit int) (*Users, error) {
@@ -124,7 +114,7 @@ func (s *Storage) ByForumSlug(slug string, desc bool, since string, limit int) (
 	}
 
 	if err != nil {
-		return nil, ErrUnknown
+		return nil, fmt.Errorf("select users: %w", err)
 	}
 	defer rows.Close()
 
@@ -132,9 +122,8 @@ func (s *Storage) ByForumSlug(slug string, desc bool, since string, limit int) (
 	for rows.Next() {
 		var user User
 		err = rows.Scan(&user.Nickname, &user.FullName, &user.Email, &user.About)
-
 		if err != nil {
-			return nil, ErrUnknown
+			return nil, fmt.Errorf("scan users %w", err)
 		}
 
 		result = append(result, &user)

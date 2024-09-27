@@ -16,3 +16,7 @@
 bin
 data
 vendor
+report.html
+tech-db-forum.dat.gz
+.logs.jsonl.swp
+logs.jsonl

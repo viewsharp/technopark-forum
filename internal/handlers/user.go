@@ -1,9 +1,11 @@
 package handlers
 
 import (
-	"github.com/valyala/fasthttp"
-	user2 "github.com/viewsharp/technopark-forum/internal/resources/user"
 	"strconv"
+
+	"github.com/valyala/fasthttp"
+
+	user2 "github.com/viewsharp/technopark-forum/internal/resources/user"
 )
 
 type UserHandler struct {
@@ -18,7 +20,7 @@ func (uh *UserHandler) Create(ctx *fasthttp.RequestCtx) (interface{}, int) {
 	var obj user2.User
 	err := json.Unmarshal(ctx.PostBody(), &obj)
 	if err != nil {
-		return nil, fasthttp.StatusBadRequest
+		return Error{Message: err.Error()}, fasthttp.StatusBadRequest
 	}
 
 	nickname := ctx.UserValue("nickname").(string)
@@ -48,10 +50,9 @@ func (uh *UserHandler) Create(ctx *fasthttp.RequestCtx) (interface{}, int) {
 		}
 
 		return result, fasthttp.StatusConflict
-	default:
-		return nil, fasthttp.StatusInternalServerError
 	}
 
+	return Error{Message: err.Error()}, fasthttp.StatusInternalServerError
 }
 
 func (uh *UserHandler) Get(ctx *fasthttp.RequestCtx) (interface{}, int) {
@@ -68,7 +69,7 @@ func (uh *UserHandler) Get(ctx *fasthttp.RequestCtx) (interface{}, int) {
 		}, fasthttp.StatusNotFound
 	}
 
-	return nil, fasthttp.StatusInternalServerError
+	return Error{Message: err.Error()}, fasthttp.StatusInternalServerError
 }
 
 func (uh *UserHandler) Update(ctx *fasthttp.RequestCtx) (interface{}, int) {
@@ -99,7 +100,7 @@ func (uh *UserHandler) Update(ctx *fasthttp.RequestCtx) (interface{}, int) {
 			Message: "Can't find user by nickname: " + nickname,
 		}, fasthttp.StatusNotFound
 	}
-	return nil, fasthttp.StatusInternalServerError
+	return Error{Message: err.Error()}, fasthttp.StatusInternalServerError
 }
 
 func (uh *UserHandler) GetByForum(ctx *fasthttp.RequestCtx) (interface{}, int) {
@@ -132,5 +133,5 @@ func (uh *UserHandler) GetByForum(ctx *fasthttp.RequestCtx) (interface{}, int) {
 		return Error{Message: "Can't find forum by slug: " + slug}, fasthttp.StatusNotFound
 	}
 
-	return nil, fasthttp.StatusInternalServerError
+	return Error{Message: err.Error()}, fasthttp.StatusInternalServerError
 }

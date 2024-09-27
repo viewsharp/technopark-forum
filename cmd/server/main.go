@@ -8,9 +8,11 @@ import (
 
 	_ "github.com/lib/pq"
 	"github.com/valyala/fasthttp"
-	"github.com/viewsharp/technopark-forum/internal/handlers"
-	"github.com/viewsharp/technopark-forum/internal/router"
 	"go.uber.org/zap"
+
+	"github.com/viewsharp/technopark-forum/internal/handlers"
+	"github.com/viewsharp/technopark-forum/internal/qlogger"
+	"github.com/viewsharp/technopark-forum/internal/router"
 )
 
 var ServerAddr = os.Getenv("SERVER_ADDR")
@@ -26,7 +28,9 @@ func main() {
 		log.Fatal(err)
 	}
 
-	serverRouter := router.New(handlers.NewStorageBundle(db))
+	//storageBundle := handlers.NewStorageBundle(db)
+	storageBundle := handlers.NewStorageBundle(qlogger.NewQueryLogger(db))
+	serverRouter := router.New(storageBundle)
 
 	log.Printf("starting server at: %s\n", ServerAddr)
 	log.Fatal(fasthttp.ListenAndServe(ServerAddr, func(ctx *fasthttp.RequestCtx) {

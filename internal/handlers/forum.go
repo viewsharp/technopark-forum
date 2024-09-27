@@ -2,6 +2,7 @@ package handlers
 
 import (
 	"github.com/valyala/fasthttp"
+
 	forum2 "github.com/viewsharp/technopark-forum/internal/resources/forum"
 )
 
@@ -37,7 +38,7 @@ func (fh *ForumHandler) Create(ctx *fasthttp.RequestCtx) (interface{}, int) {
 		return Error{Message: "Can't find user with nickname: " + *obj.User}, fasthttp.StatusNotFound
 	}
 
-	return nil, fasthttp.StatusInternalServerError
+	return Error{Message: err.Error()}, fasthttp.StatusInternalServerError
 }
 
 func (fh *ForumHandler) Get(ctx *fasthttp.RequestCtx) (interface{}, int) {
@@ -52,5 +53,5 @@ func (fh *ForumHandler) Get(ctx *fasthttp.RequestCtx) (interface{}, int) {
 		return Error{Message: "Can't find forum by slug: " + slug}, fasthttp.StatusNotFound
 	}
 
-	return nil, fasthttp.StatusInternalServerError
+	return Error{Message: err.Error()}, fasthttp.StatusInternalServerError
 }

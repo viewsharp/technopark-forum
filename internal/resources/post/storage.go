@@ -3,17 +3,25 @@ package post
 import (
 	"database/sql"
 	"fmt"
-	"github.com/lib/pq"
-	"github.com/viewsharp/technopark-forum/internal/resources/forum"
-	"github.com/viewsharp/technopark-forum/internal/resources/thread"
-	"github.com/viewsharp/technopark-forum/internal/resources/user"
 	"regexp"
 	"strings"
 	"sync"
+
+	"github.com/lib/pq"
+
+	"github.com/viewsharp/technopark-forum/internal/resources/forum"
+	"github.com/viewsharp/technopark-forum/internal/resources/thread"
+	"github.com/viewsharp/technopark-forum/internal/resources/user"
 )
 
+type DB interface {
+	Exec(query string, args ...any) (sql.Result, error)
+	QueryRow(query string, args ...any) *sql.Row
+	Query(query string, args ...any) (*sql.Rows, error)
+}
+
 type Storage struct {
-	DB           *sql.DB
+	DB           DB
 	postInsertMX sync.Mutex
 }
 
@@ -162,9 +170,9 @@ func (s *Storage) ById(id int, related []string) (*PostFull, error) {
 					p.user_nn, p.created, f.slug, p.id, p.isedited, p.message, p.parent_id, p.thread_id,
 					t.user_nn, t.created, f.slug, t.id, t.message, t.slug, t.title, t.votes
 				FROM posts p
-					JOIN users u on p.user_nn = u.nickname
-					JOIN threads t on p.thread_id = t.id
-					JOIN forums f on t.forum_slug = f.slug
+					JOIN users u ON p.user_nn = u.nickname
+					JOIN threads t ON p.thread_id = t.id
+					JOIN forums f ON t.forum_slug = f.slug
 				WHERE p.id = $1`,
 		id,
 	).Scan(
@@ -225,7 +233,7 @@ func (s *Storage) FlatByThreadSlug(slug string, limit int, desc bool, since int)
 	var queryBuilder strings.Builder
 	queryBuilder.WriteString(`	SELECT p.user_nn, p.created, t.forum_slug, p.id, p.message, p.parent_id, p.thread_id
 										FROM posts p
-											JOIN threads t on p.thread_id = t.id
+											JOIN threads t ON p.thread_id = t.id
 										WHERE t.slug = $1`)
 
 	if since != 0 {
@@ -249,7 +257,7 @@ func (s *Storage) FlatByThreadId(id int, limit int, desc bool, since int) (Posts
 	var queryBuilder strings.Builder
 	queryBuilder.WriteString(`	SELECT p.user_nn, p.created, t.forum_slug, p.id, p.message, p.parent_id, p.thread_id
 										FROM posts p
-											JOIN threads t on p.thread_id = t.id
+											JOIN threads t ON p.thread_id = t.id
 										WHERE t.id = $1`)
 
 	if since != 0 {

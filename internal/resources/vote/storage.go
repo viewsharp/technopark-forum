@@ -2,11 +2,18 @@ package vote
 
 import (
 	"database/sql"
+
 	"github.com/lib/pq"
 )
 
+type DB interface {
+	Exec(query string, args ...any) (sql.Result, error)
+	QueryRow(query string, args ...any) *sql.Row
+	Query(query string, args ...any) (*sql.Rows, error)
+}
+
 type Storage struct {
-	DB *sql.DB
+	DB DB
 }
 
 func (s *Storage) AddByThreadId(vote *Vote, threadId int) error {
@@ -59,6 +66,6 @@ func (s *Storage) AddByThreadSlug(vote *Vote, threadSlug string) error {
 	return ErrUnknown
 }
 
-func (s *Storage)Sum()  {
+func (s *Storage) Sum() {
 
 }

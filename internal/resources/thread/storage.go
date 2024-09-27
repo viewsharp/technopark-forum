@@ -2,12 +2,19 @@ package thread
 
 import (
 	"database/sql"
-	"github.com/lib/pq"
 	"strings"
+
+	"github.com/lib/pq"
 )
 
+type DB interface {
+	Exec(query string, args ...any) (sql.Result, error)
+	QueryRow(query string, args ...any) *sql.Row
+	Query(query string, args ...any) (*sql.Rows, error)
+}
+
 type Storage struct {
-	DB *sql.DB
+	DB DB
 }
 
 func (s *Storage) Add(thread *Thread) error {
@@ -132,7 +139,6 @@ func (s *Storage) ByForumSlug(slug string, desc bool, since string, limit int) (
 
 		result = append(result, &thread)
 	}
-
 
 	if len(result) == 0 {
 		var forumSlug *string

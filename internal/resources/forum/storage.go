@@ -2,11 +2,18 @@ package forum
 
 import (
 	"database/sql"
+
 	"github.com/lib/pq"
 )
 
+type DB interface {
+	Exec(query string, args ...any) (sql.Result, error)
+	QueryRow(query string, args ...any) *sql.Row
+	Query(query string, args ...any) (*sql.Rows, error)
+}
+
 type Storage struct {
-	DB *sql.DB
+	DB DB
 }
 
 func (s *Storage) Add(forum *Forum) error {
