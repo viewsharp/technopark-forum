@@ -14,6 +14,12 @@ type Row struct {
 	URI      string  `json:"uri"`
 }
 
+type Stats struct {
+	Count    uint64  `json:"count"`
+	Duration float64 `json:"duration"`
+	URI      string  `json:"uri"`
+}
+
 func main() {
 	err := run()
 	if err != nil {
@@ -40,6 +46,7 @@ func run() error {
 	}
 
 	durationByURI := make(map[string]float64)
+	countByURI := make(map[string]uint64)
 	for _, row := range rows {
 		parts := strings.Split(row.URI, "/")
 		parts[3] = "-"
@@ -61,20 +68,26 @@ func run() error {
 			query.Set("since", "0")
 		}
 
-		durationByURI[url.Path+"?"+query.Encode()] += row.Duration
+		uri = url.Path + "?" + query.Encode()
+		durationByURI[uri] += row.Duration
+		countByURI[uri]++
 	}
 
-	var durations []Row
+	var stats []Stats
 	for uri, duration := range durationByURI {
-		durations = append(durations, Row{duration, uri})
+		stats = append(stats, Stats{
+			countByURI[uri],
+			duration,
+			uri,
+		})
 	}
 
-	sort.Slice(durations, func(i, j int) bool {
-		return durations[i].Duration < durations[j].Duration
+	sort.Slice(stats, func(i, j int) bool {
+		return stats[i].Duration > stats[j].Duration
 	})
 
-	for _, row := range durations {
-		fmt.Println(row.URI, row.Duration)
+	for _, row := range stats {
+		fmt.Println(row.Duration, row.Duration/float64(row.Count), row.URI)
 	}
 
 	return nil

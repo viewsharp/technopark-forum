@@ -2,13 +2,11 @@ package router
 
 import (
 	"github.com/buaazp/fasthttprouter"
-	jsoniter "github.com/json-iterator/go"
+	json "github.com/bytedance/sonic"
 	"github.com/valyala/fasthttp"
 
 	"github.com/viewsharp/technopark-forum/internal/handlers"
 )
-
-var json = jsoniter.ConfigFastest
 
 type HandleFunc func(ctx *fasthttp.RequestCtx) (interface{}, int)
 

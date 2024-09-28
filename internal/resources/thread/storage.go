@@ -119,7 +119,7 @@ func (s *Storage) ByForumSlug(slug string, desc bool, since string, limit int) (
 		return nil, ErrUnknown
 	}
 
-	result := make(Threads, 0, 1)
+	result := make(Threads, 0, limit)
 	for rows.Next() {
 		var thread Thread
 		err = rows.Scan(

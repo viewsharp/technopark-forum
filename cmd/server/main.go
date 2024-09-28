@@ -11,7 +11,6 @@ import (
 	"go.uber.org/zap"
 
 	"github.com/viewsharp/technopark-forum/internal/handlers"
-	"github.com/viewsharp/technopark-forum/internal/qlogger"
 	"github.com/viewsharp/technopark-forum/internal/router"
 )
 
@@ -28,8 +27,8 @@ func main() {
 		log.Fatal(err)
 	}
 
-	//storageBundle := handlers.NewStorageBundle(db)
-	storageBundle := handlers.NewStorageBundle(qlogger.NewQueryLogger(db))
+	storageBundle := handlers.NewStorageBundle(db)
+	//storageBundle := handlers.NewStorageBundle(qlogger.NewQueryLogger(db))
 	serverRouter := router.New(storageBundle)
 
 	log.Printf("starting server at: %s\n", ServerAddr)

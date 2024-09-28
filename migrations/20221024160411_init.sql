@@ -12,6 +12,8 @@ CREATE TABLE IF NOT EXISTS users
     about    TEXT
 );
 
+CREATE INDEX users_nickname ON users USING HASH ( nickname );
+
 CREATE TABLE IF NOT EXISTS forums
 (
     slug    CITEXT PRIMARY KEY,
@@ -21,12 +23,16 @@ CREATE TABLE IF NOT EXISTS forums
     threads INTEGER DEFAULT 0  -- Denormalization
 );
 
+CREATE INDEX forums_slug ON forums USING HASH ( slug );
+
 CREATE TABLE forum_user
 (-- Denormalization
     forum_slug CITEXT,
     user_id    INTEGER,
     PRIMARY KEY (user_id, forum_slug)
 );
+
+CREATE INDEX forum_user_forum_slug ON forum_user USING HASH ( forum_slug );
 
 CREATE TABLE IF NOT EXISTS threads
 (
@@ -39,6 +45,8 @@ CREATE TABLE IF NOT EXISTS threads
     user_nn    CITEXT REFERENCES users (nickname) NOT NULL,
     forum_slug CITEXT REFERENCES forums (slug)    NOT NULL
 );
+
+CREATE INDEX threads_slug ON threads USING HASH ( slug );
 
 CREATE INDEX threads__forum_created
     ON threads (forum_slug, created);
