@@ -6,6 +6,7 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/goccy/go-json"
 	"github.com/valyala/fasthttp"
 
 	post2 "github.com/viewsharp/technopark-forum/internal/usecase/post"

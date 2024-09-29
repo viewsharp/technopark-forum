@@ -3,6 +3,7 @@ package handlers
 import (
 	"strconv"
 
+	"github.com/goccy/go-json"
 	"github.com/valyala/fasthttp"
 
 	user2 "github.com/viewsharp/technopark-forum/internal/usecase/user"

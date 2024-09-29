@@ -84,3 +84,5 @@ func (s *Usecase) FullBySlug(ctx context.Context, slug string) (*Forum, error) {
 	}
 	return &result, nil
 }
+
+//5148.50
