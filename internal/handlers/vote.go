@@ -6,15 +6,15 @@ import (
 
 	"github.com/valyala/fasthttp"
 
-	"github.com/viewsharp/technopark-forum/internal/resources/thread"
-	vote2 "github.com/viewsharp/technopark-forum/internal/resources/vote"
+	"github.com/viewsharp/technopark-forum/internal/usecase/thread"
+	vote2 "github.com/viewsharp/technopark-forum/internal/usecase/vote"
 )
 
 type VoteHandler struct {
-	sb *StorageBundle
+	sb *UsecaseSet
 }
 
-func NewVoteHandler(storageBundle *StorageBundle) *VoteHandler {
+func NewVoteHandler(storageBundle *UsecaseSet) *VoteHandler {
 	return &VoteHandler{sb: storageBundle}
 }
 

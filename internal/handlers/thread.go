@@ -6,14 +6,14 @@ import (
 
 	"github.com/valyala/fasthttp"
 
-	thread2 "github.com/viewsharp/technopark-forum/internal/resources/thread"
+	thread2 "github.com/viewsharp/technopark-forum/internal/usecase/thread"
 )
 
 type ThreadHandler struct {
-	sb *StorageBundle
+	sb *UsecaseSet
 }
 
-func NewThreadHandler(storageBundle *StorageBundle) *ThreadHandler {
+func NewThreadHandler(storageBundle *UsecaseSet) *ThreadHandler {
 	return &ThreadHandler{sb: storageBundle}
 }
 

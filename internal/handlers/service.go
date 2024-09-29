@@ -3,14 +3,14 @@ package handlers
 import (
 	"github.com/valyala/fasthttp"
 
-	"github.com/viewsharp/technopark-forum/internal/resources/status"
+	"github.com/viewsharp/technopark-forum/internal/usecase/status"
 )
 
 type ServiceHandler struct {
-	sb *StorageBundle
+	sb *UsecaseSet
 }
 
-func NewServiceHandler(storageBundle *StorageBundle) *ServiceHandler {
+func NewServiceHandler(storageBundle *UsecaseSet) *ServiceHandler {
 	return &ServiceHandler{sb: storageBundle}
 }
 

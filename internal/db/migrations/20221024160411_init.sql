@@ -1,57 +1,57 @@
 -- +goose Up
 -- +goose StatementBegin
 
-CREATE EXTENSION IF NOT EXISTS CITEXT;
+CREATE EXTENSION IF NOT EXISTS citext;
 
 CREATE TABLE IF NOT EXISTS users
 (
     id       SERIAL NOT NULL UNIQUE,
-    nickname CITEXT COLLATE "ucs_basic" PRIMARY KEY,
+    nickname citext COLLATE "ucs_basic" PRIMARY KEY,
     fullname TEXT   NOT NULL,
-    email    CITEXT NOT NULL UNIQUE,
+    email    citext NOT NULL UNIQUE,
     about    TEXT
 );
 
-CREATE INDEX users_nickname ON users USING HASH ( nickname );
+-- CREATE INDEX users_nickname ON users USING HASH ( nickname );
 
 CREATE TABLE IF NOT EXISTS forums
 (
-    slug    CITEXT PRIMARY KEY,
+    slug    citext PRIMARY KEY,
     title   TEXT                               NOT NULL,
-    user_nn CITEXT REFERENCES users (nickname) NOT NULL,
+    user_nn citext REFERENCES users (nickname) NOT NULL,
     posts   INTEGER DEFAULT 0, -- Denormalization
     threads INTEGER DEFAULT 0  -- Denormalization
 );
 
-CREATE INDEX forums_slug ON forums USING HASH ( slug );
+-- CREATE INDEX forums_slug ON forums USING HASH ( slug );
 
 CREATE TABLE forum_user
 (-- Denormalization
-    forum_slug CITEXT,
-    user_id    INTEGER,
+    forum_slug citext REFERENCES forums (slug) NOT NULL,
+    user_id    INTEGER REFERENCES users (id)   NOT NULL,
     PRIMARY KEY (user_id, forum_slug)
 );
 
-CREATE INDEX forum_user_forum_slug ON forum_user USING HASH ( forum_slug );
+-- CREATE INDEX forum_user_forum_slug ON forum_user USING HASH ( forum_slug );
 
 CREATE TABLE IF NOT EXISTS threads
 (
     id         SERIAL PRIMARY KEY,
-    slug       CITEXT UNIQUE,
+    slug       citext UNIQUE,
     created    TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
     title      TEXT                               NOT NULL,
     message    TEXT,
     votes      INTEGER                  DEFAULT 0,
-    user_nn    CITEXT REFERENCES users (nickname) NOT NULL,
-    forum_slug CITEXT REFERENCES forums (slug)    NOT NULL
+    user_nn    citext REFERENCES users (nickname) NOT NULL,
+    forum_slug citext REFERENCES forums (slug)    NOT NULL
 );
 
-CREATE INDEX threads_slug ON threads USING HASH ( slug );
+-- CREATE INDEX threads_slug ON threads USING HASH ( slug );
 
 CREATE INDEX threads__forum_created
     ON threads (forum_slug, created);
 
-CREATE OR REPLACE FUNCTION threadInsert()
+CREATE OR REPLACE FUNCTION threadinsert()
     RETURNS TRIGGER AS
 $BODY$
 BEGIN
@@ -64,20 +64,20 @@ END;
 $BODY$
     LANGUAGE plpgsql;
 
-CREATE TRIGGER threadInsert
+CREATE TRIGGER threadinsert
     AFTER INSERT
     ON threads
     FOR EACH ROW
-EXECUTE PROCEDURE threadInsert();
+EXECUTE PROCEDURE threadinsert();
 
 CREATE TABLE IF NOT EXISTS posts
 (
     id        SERIAL PRIMARY KEY,
     created   TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
-    isEdited  BOOLEAN                  DEFAULT FALSE,
+    isedited  BOOLEAN                  DEFAULT FALSE,
     message   TEXT                               NOT NULL,
     parent_id INTEGER REFERENCES posts (id),
-    user_nn   CITEXT REFERENCES users (nickname) NOT NULL,
+    user_nn   citext REFERENCES users (nickname) NOT NULL,
     thread_id INTEGER REFERENCES threads (id)    NOT NULL,
     path      INTEGER ARRAY
 );
@@ -88,12 +88,12 @@ CREATE INDEX posts__thread_id_created
 CREATE TABLE IF NOT EXISTS votes
 (
     thread_id INTEGER REFERENCES threads (id)    NOT NULL,
-    user_nn   CITEXT REFERENCES users (nickname) NOT NULL,
+    user_nn   citext REFERENCES users (nickname) NOT NULL,
     voice     INTEGER,
     CONSTRAINT votes_thread_user_unique UNIQUE (thread_id, user_nn)
 );
 
-CREATE OR REPLACE FUNCTION voteUpdate()
+CREATE OR REPLACE FUNCTION voteupdate()
     RETURNS TRIGGER AS
 $BODY$
 BEGIN
@@ -110,13 +110,13 @@ END;
 $BODY$
     LANGUAGE plpgsql;
 
-CREATE TRIGGER voteUpdate
+CREATE TRIGGER voteupdate
     AFTER UPDATE
     ON votes
     FOR EACH ROW
-EXECUTE PROCEDURE voteUpdate();
+EXECUTE PROCEDURE voteupdate();
 
-CREATE OR REPLACE FUNCTION voteInsert()
+CREATE OR REPLACE FUNCTION voteinsert()
     RETURNS TRIGGER AS
 $BODY$
 BEGIN
@@ -126,11 +126,11 @@ END;
 $BODY$
     LANGUAGE plpgsql;
 
-CREATE TRIGGER voteInsert
+CREATE TRIGGER voteinsert
     AFTER INSERT
     ON votes
     FOR EACH ROW
-EXECUTE PROCEDURE voteInsert();
+EXECUTE PROCEDURE voteinsert();
 
 
 -- +goose StatementEnd
@@ -138,15 +138,15 @@ EXECUTE PROCEDURE voteInsert();
 -- +goose Down
 -- +goose StatementBegin
 
-DROP TRIGGER voteInsert ON votes;
-DROP FUNCTION voteInsert;
-DROP TRIGGER voteUpdate ON votes;
-DROP FUNCTION voteUpdate;
+DROP TRIGGER voteinsert ON votes;
+DROP FUNCTION voteinsert;
+DROP TRIGGER voteupdate ON votes;
+DROP FUNCTION voteupdate;
 DROP TABLE votes;
 DROP INDEX posts__thread_id_created;
 DROP TABLE posts;
-DROP TRIGGER threadInsert on threads;
-DROP FUNCTION threadInsert;
+DROP TRIGGER threadinsert ON threads;
+DROP FUNCTION threadinsert;
 DROP TABLE forum_user;
 DROP TABLE forums;
 DROP TABLE users;

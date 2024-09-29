@@ -8,20 +8,20 @@ import (
 
 	"github.com/valyala/fasthttp"
 
-	post2 "github.com/viewsharp/technopark-forum/internal/resources/post"
-	"github.com/viewsharp/technopark-forum/internal/resources/thread"
+	post2 "github.com/viewsharp/technopark-forum/internal/usecase/post"
+	"github.com/viewsharp/technopark-forum/internal/usecase/thread"
 )
 
 type PostHandler struct {
-	sb *StorageBundle
+	sb *UsecaseSet
 }
 
-func NewPostHandler(storageBundle *StorageBundle) *PostHandler {
+func NewPostHandler(storageBundle *UsecaseSet) *PostHandler {
 	return &PostHandler{sb: storageBundle}
 }
 
 func (ph *PostHandler) Create(ctx *fasthttp.RequestCtx) (interface{}, int) {
-	posts := make(post2.Posts, 0, 1)
+	var posts []post2.Post
 	err := json.Unmarshal(ctx.PostBody(), &posts)
 	if err != nil {
 		return nil, fasthttp.StatusBadRequest
@@ -56,9 +56,9 @@ func (ph *PostHandler) Create(ctx *fasthttp.RequestCtx) (interface{}, int) {
 	}
 
 	if threadIdParseErr == nil {
-		err = ph.sb.post.AddByThreadId(ctx, &posts, threadId)
+		err = ph.sb.post.AddByThreadId(ctx, posts, int32(threadId))
 	} else {
-		err = ph.sb.post.AddByThreadSlug(ctx, &posts, slugOrId)
+		err = ph.sb.post.AddByThreadSlug(ctx, posts, slugOrId)
 	}
 
 	if err != nil {
@@ -150,7 +150,7 @@ func (ph *PostHandler) GetByThread(ctx *fasthttp.RequestCtx) (interface{}, int) 
 	}
 
 	var err error
-	var posts post2.Posts
+	var posts []post2.Post
 	switch string(ctx.QueryArgs().Peek("sort")) {
 	case "tree":
 		if threadIdParseErr == nil {

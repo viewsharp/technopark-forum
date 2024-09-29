@@ -3,14 +3,14 @@ package handlers
 import (
 	"github.com/valyala/fasthttp"
 
-	forum2 "github.com/viewsharp/technopark-forum/internal/resources/forum"
+	forumUC "github.com/viewsharp/technopark-forum/internal/usecase/forum"
 )
 
 type ForumHandler struct {
-	sb *StorageBundle
+	sb *UsecaseSet
 }
 
-func NewForumHandler(storageBundle *StorageBundle) *ForumHandler {
+func NewForumHandler(storageBundle *UsecaseSet) *ForumHandler {
 	return &ForumHandler{sb: storageBundle}
 }
 
@@ -19,26 +19,27 @@ func (fh *ForumHandler) Create(ctx *fasthttp.RequestCtx) (interface{}, int) {
 		return nil, fasthttp.StatusNotFound
 	}
 
-	var obj forum2.Forum
-	err := json.Unmarshal(ctx.PostBody(), &obj)
+	var forum forumUC.Forum
+	err := json.Unmarshal(ctx.PostBody(), &forum)
 	if err != nil {
 		return nil, fasthttp.StatusBadRequest
 	}
 
-	err = fh.sb.forum.Add(ctx, &obj)
-	switch err {
-	case nil:
-		return obj, fasthttp.StatusCreated
-	case forum2.ErrUniqueViolation:
-		result, err := fh.sb.forum.BySlug(ctx, *obj.Slug)
-		if err == nil {
-			return result, fasthttp.StatusConflict
+	createdForum, err := fh.sb.forum.Add(ctx, forum)
+	if err != nil {
+		switch err {
+		case forumUC.ErrUniqueViolation:
+			result, err := fh.sb.forum.BySlug(ctx, *forum.Slug)
+			if err == nil {
+				return result, fasthttp.StatusConflict
+			}
+		case forumUC.ErrNotFoundUser:
+			return Error{Message: "Can't find user with nickname: " + *forum.User}, fasthttp.StatusNotFound
 		}
-	case forum2.ErrNotFoundUser:
-		return Error{Message: "Can't find user with nickname: " + *obj.User}, fasthttp.StatusNotFound
+		return Error{Message: err.Error()}, fasthttp.StatusInternalServerError
 	}
 
-	return Error{Message: err.Error()}, fasthttp.StatusInternalServerError
+	return createdForum, fasthttp.StatusCreated
 }
 
 func (fh *ForumHandler) Get(ctx *fasthttp.RequestCtx) (interface{}, int) {
@@ -49,7 +50,7 @@ func (fh *ForumHandler) Get(ctx *fasthttp.RequestCtx) (interface{}, int) {
 	switch err {
 	case nil:
 		return result, fasthttp.StatusOK
-	case forum2.ErrNotFound:
+	case forumUC.ErrNotFound:
 		return Error{Message: "Can't find forum by slug: " + slug}, fasthttp.StatusNotFound
 	}
 

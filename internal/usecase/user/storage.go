@@ -16,11 +16,11 @@ type DB interface {
 	Query(ctx context.Context, sql string, args ...any) (pgx.Rows, error)
 }
 
-type Storage struct {
+type Usecase struct {
 	DB DB
 }
 
-func (s *Storage) Add(ctx context.Context, user *User) error {
+func (s *Usecase) Add(ctx context.Context, user *User) error {
 	_, err := s.DB.Exec(
 		ctx,
 		"INSERT INTO users (nickname, fullname, email, about)	VALUES ($1, $2, $3, $4)",
@@ -37,7 +37,7 @@ func (s *Storage) Add(ctx context.Context, user *User) error {
 	return nil
 }
 
-func (s *Storage) ByNickname(ctx context.Context, nickname string) (*User, error) {
+func (s *Usecase) ByNickname(ctx context.Context, nickname string) (*User, error) {
 	var result User
 
 	err := s.DB.QueryRow(
@@ -55,7 +55,7 @@ func (s *Storage) ByNickname(ctx context.Context, nickname string) (*User, error
 	return &result, nil
 }
 
-func (s *Storage) ByEmail(ctx context.Context, email string) (*User, error) {
+func (s *Usecase) ByEmail(ctx context.Context, email string) (*User, error) {
 	var result User
 
 	err := s.DB.QueryRow(ctx, "SELECT nickname, fullname, email, about FROM users WHERE email = $1", email).Scan(&result.Nickname, &result.FullName, &result.Email, &result.About)
@@ -66,7 +66,7 @@ func (s *Storage) ByEmail(ctx context.Context, email string) (*User, error) {
 	return &result, nil
 }
 
-func (s *Storage) UpdateByNickname(ctx context.Context, nickname string, user *UserUpdate) error {
+func (s *Usecase) UpdateByNickname(ctx context.Context, nickname string, user *UserUpdate) error {
 	err := s.DB.QueryRow(
 		ctx,
 		"UPDATE users "+
@@ -89,7 +89,7 @@ func (s *Storage) UpdateByNickname(ctx context.Context, nickname string, user *U
 	return nil
 }
 
-func (s *Storage) ByForumSlug(ctx context.Context, slug string, desc bool, since string, limit int) (*Users, error) {
+func (s *Usecase) ByForumSlug(ctx context.Context, slug string, desc bool, since string, limit int) (*Users, error) {
 	var queryBuilder strings.Builder
 	queryBuilder.WriteString(
 		"SELECT u.nickname, u.fullname, u.email, u.about " +

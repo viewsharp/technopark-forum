@@ -16,11 +16,11 @@ type DB interface {
 	Query(ctx context.Context, sql string, args ...any) (pgx.Rows, error)
 }
 
-type Storage struct {
+type Usecase struct {
 	DB DB
 }
 
-func (s *Storage) Add(ctx context.Context, thread *Thread) error {
+func (s *Usecase) Add(ctx context.Context, thread *Thread) error {
 	err := s.DB.QueryRow(
 		ctx,
 		`	INSERT INTO threads (slug, created, title, message, user_nn, forum_slug)
@@ -46,7 +46,7 @@ func (s *Storage) Add(ctx context.Context, thread *Thread) error {
 	return nil
 }
 
-func (s *Storage) BySlug(ctx context.Context, slug string) (*Thread, error) {
+func (s *Usecase) BySlug(ctx context.Context, slug string) (*Thread, error) {
 	var result Thread
 
 	err := s.DB.QueryRow(
@@ -66,7 +66,7 @@ func (s *Storage) BySlug(ctx context.Context, slug string) (*Thread, error) {
 	return &result, nil
 }
 
-func (s *Storage) ById(ctx context.Context, id int) (*Thread, error) {
+func (s *Usecase) ById(ctx context.Context, id int) (*Thread, error) {
 	var result Thread
 
 	err := s.DB.QueryRow(
@@ -86,7 +86,7 @@ func (s *Storage) ById(ctx context.Context, id int) (*Thread, error) {
 	return &result, nil
 }
 
-func (s *Storage) ByForumSlug(ctx context.Context, slug string, desc bool, since string, limit int) (*Threads, error) {
+func (s *Usecase) ByForumSlug(ctx context.Context, slug string, desc bool, since string, limit int) (*Threads, error) {
 	var queryBuilder strings.Builder
 	queryBuilder.WriteString(`	SELECT id, slug, created, title, message, user_nn, forum_slug, votes
             						FROM threads t
@@ -154,7 +154,7 @@ func (s *Storage) ByForumSlug(ctx context.Context, slug string, desc bool, since
 	return &result, nil
 }
 
-func (s *Storage) UpdateById(ctx context.Context, id int, thread *ThreadUpdate) error {
+func (s *Usecase) UpdateById(ctx context.Context, id int, thread *ThreadUpdate) error {
 	_, err := s.DB.Exec(
 		ctx,
 		`	UPDATE threads 
@@ -180,7 +180,7 @@ func (s *Storage) UpdateById(ctx context.Context, id int, thread *ThreadUpdate) 
 	return nil
 }
 
-func (s *Storage) UpdateBySlug(ctx context.Context, slug string, thread *ThreadUpdate) error {
+func (s *Usecase) UpdateBySlug(ctx context.Context, slug string, thread *ThreadUpdate) error {
 	_, err := s.DB.Exec(
 		ctx,
 		`	UPDATE threads 

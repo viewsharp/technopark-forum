@@ -15,11 +15,11 @@ type DB interface {
 	Query(ctx context.Context, sql string, args ...any) (pgx.Rows, error)
 }
 
-type Storage struct {
+type Usecase struct {
 	DB DB
 }
 
-func (s *Storage) AddByThreadId(ctx context.Context, vote *Vote, threadId int) error {
+func (s *Usecase) AddByThreadId(ctx context.Context, vote *Vote, threadId int) error {
 	_, err := s.DB.Exec(
 		ctx,
 		`
@@ -46,7 +46,7 @@ func (s *Storage) AddByThreadId(ctx context.Context, vote *Vote, threadId int) e
 	return nil
 }
 
-func (s *Storage) AddByThreadSlug(ctx context.Context, vote *Vote, threadSlug string) error {
+func (s *Usecase) AddByThreadSlug(ctx context.Context, vote *Vote, threadSlug string) error {
 	_, err := s.DB.Exec(
 		ctx,
 		`

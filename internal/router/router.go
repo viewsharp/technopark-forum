@@ -44,7 +44,7 @@ func (r *Router) GET(path string, handle HandleFunc) {
 	r.Handle("GET", path, GetHandler(handle))
 }
 
-func New(sb *handlers.StorageBundle) Router {
+func New(sb *handlers.UsecaseSet) Router {
 	router := Router{fasthttprouter.New()}
 
 	router.Handle("GET", "/api", func(ctx *fasthttp.RequestCtx) {

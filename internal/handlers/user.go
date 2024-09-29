@@ -5,14 +5,14 @@ import (
 
 	"github.com/valyala/fasthttp"
 
-	user2 "github.com/viewsharp/technopark-forum/internal/resources/user"
+	user2 "github.com/viewsharp/technopark-forum/internal/usecase/user"
 )
 
 type UserHandler struct {
-	sb *StorageBundle
+	sb *UsecaseSet
 }
 
-func NewUserHandler(storageBundle *StorageBundle) *UserHandler {
+func NewUserHandler(storageBundle *UsecaseSet) *UserHandler {
 	return &UserHandler{sb: storageBundle}
 }
 

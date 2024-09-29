@@ -4,16 +4,19 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"maps"
 	"regexp"
+	"slices"
 	"strings"
-	"sync"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
+	"github.com/jackc/pgx/v5/pgtype"
 
-	"github.com/viewsharp/technopark-forum/internal/resources/forum"
-	"github.com/viewsharp/technopark-forum/internal/resources/thread"
-	"github.com/viewsharp/technopark-forum/internal/resources/user"
+	"github.com/viewsharp/technopark-forum/internal/db"
+	"github.com/viewsharp/technopark-forum/internal/usecase/forum"
+	"github.com/viewsharp/technopark-forum/internal/usecase/thread"
+	"github.com/viewsharp/technopark-forum/internal/usecase/user"
 )
 
 type DB interface {
@@ -22,25 +25,15 @@ type DB interface {
 	Query(ctx context.Context, sql string, args ...any) (pgx.Rows, error)
 }
 
-type Storage struct {
-	DB           DB
-	postInsertMX sync.Mutex
+type Usecase struct {
+	DB      DB
+	Queries *db.Queries
 }
 
 var regexInvalidAuthor, _ = regexp.Compile(`^Key \(user_nn\)=\(([\w\.]+)\) is not present in table "users"\.$`)
 
-func (s *Storage) AddByThreadSlug(ctx context.Context, posts *Posts, slug string) error {
-	var threadId int
-	var forumSlug string
-
-	err := s.DB.QueryRow(
-		ctx,
-		`	SELECT id, forum_slug
-            	FROM threads
-              	WHERE slug = $1`,
-		slug,
-	).Scan(&threadId, &forumSlug)
-
+func (s *Usecase) AddByThreadSlug(ctx context.Context, posts []Post, slug string) error {
+	dbThread, err := s.Queries.GetThreadBySlug(ctx, pgtype.Text{String: slug, Valid: true})
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return ErrNotFoundThread
@@ -48,13 +41,11 @@ func (s *Storage) AddByThreadSlug(ctx context.Context, posts *Posts, slug string
 		return fmt.Errorf("select thread: %w", err)
 	}
 
-	return s.add(ctx, posts, threadId, forumSlug)
+	return s.add(ctx, posts, dbThread.ID, dbThread.ForumSlug)
 }
 
-func (s *Storage) AddByThreadId(ctx context.Context, posts *Posts, threadId int) error {
-	var forumSlug string
-
-	err := s.DB.QueryRow(ctx, "SELECT forum_slug FROM threads WHERE id = $1", threadId).Scan(&forumSlug)
+func (s *Usecase) AddByThreadId(ctx context.Context, posts []Post, threadId int32) error {
+	dbThread, err := s.Queries.GetThreadByID(ctx, threadId)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return ErrNotFoundThread
@@ -62,21 +53,111 @@ func (s *Storage) AddByThreadId(ctx context.Context, posts *Posts, threadId int)
 		return fmt.Errorf("select thread: %w", err)
 	}
 
-	return s.add(ctx, posts, threadId, forumSlug)
+	return s.add(ctx, posts, threadId, dbThread.ForumSlug)
 }
 
-func (s *Storage) add(ctx context.Context, posts *Posts, threadId int, forumSlug string) error {
-	err := s.addPostsOnly(ctx, posts, threadId, forumSlug)
-	if err != nil {
-		return fmt.Errorf("addPostsOnly: %w", err)
+func (s *Usecase) add(ctx context.Context, posts []Post, threadId int32, forumSlug string) error {
+	// select parents
+
+	parentIDMap := make(map[int32]struct{})
+	for _, post := range posts {
+		if post.Parent != nil {
+			parentIDMap[*post.Parent] = struct{}{}
+		}
 	}
 
-	err = s.addInsertForumUsers(ctx, posts, forumSlug)
+	parentIDs := slices.AppendSeq(make([]int32, 0, len(parentIDMap)), maps.Keys(parentIDMap))
+	parents, err := s.Queries.ListByID(ctx, parentIDs)
 	if err != nil {
-		return fmt.Errorf("addInsertForumUsers: %w", err)
+		return fmt.Errorf("list parents by id: %w", err)
 	}
 
-	_, err = s.DB.Exec(ctx, "UPDATE forums SET posts = posts+$1 WHERE slug = $2", len(*posts), forumSlug)
+	parentByID := make(map[int32]db.Post, len(parentIDs))
+	for _, parent := range parents {
+		parentByID[parent.ID] = parent
+	}
+
+	// insert posts
+
+	postsParams := make([]db.CreatePostsParams, 0, len(posts))
+	for _, post := range posts {
+		var parentID pgtype.Int4
+		var path []int32
+		if post.Parent != nil {
+			if parent, ok := parentByID[*post.Parent]; ok {
+				if parent.ThreadID != threadId {
+					return ErrInvalidParent
+				}
+
+				parentID = pgtype.Int4{Int32: parent.ID, Valid: true}
+				path = append(parent.Path, parent.ID)
+			} else {
+				return ErrInvalidParent
+			}
+		}
+
+		postsParams = append(postsParams, db.CreatePostsParams{
+			Message:  *post.Message,
+			ParentID: parentID,
+			UserNn:   *post.Author,
+			ThreadID: threadId,
+			Path:     path,
+		})
+	}
+
+	postsBatch := s.Queries.CreatePosts(ctx, postsParams)
+	postsBatch.QueryRow(func(i int, post db.Post, batchErr error) {
+		if errors.Is(batchErr, db.ErrBatchAlreadyClosed) {
+			return
+		}
+		if batchErr != nil {
+			var pgErr *pgconn.PgError
+			if errors.As(batchErr, &pgErr) && pgErr.Code == "23503" {
+				err = ErrNotFoundUser{Nickname: post.UserNn}
+			} else {
+				err = batchErr
+			}
+
+			postsBatch.Close()
+			return
+		}
+
+		posts[i].Author = &post.UserNn
+		posts[i].Created = &post.Created.Time
+		posts[i].Id = &post.ID
+		posts[i].Message = &post.Message
+		posts[i].Parent = &post.ParentID.Int32
+		posts[i].Thread = &post.ThreadID
+		posts[i].Forum = &forumSlug
+	})
+	if err != nil {
+		return fmt.Errorf("create posts: %w", err)
+	}
+
+	// insert forum users
+
+	forumUsersParams := make([]db.CreateForumUserParams, 0, len(posts))
+	for _, post := range posts {
+		forumUsersParams = append(forumUsersParams, db.CreateForumUserParams{
+			ForumSlug: forumSlug,
+			Nickname:  *post.Author,
+		})
+	}
+
+	forumUsersBatch := s.Queries.CreateForumUser(ctx, forumUsersParams)
+	forumUsersBatch.Exec(func(i int, batchErr error) {
+		if batchErr != nil && !errors.Is(batchErr, db.ErrBatchAlreadyClosed) {
+			err = batchErr
+		}
+		forumUsersBatch.Close()
+	})
+
+	// update posts count
+
+	err = s.Queries.IncreasePostsCount(ctx, db.IncreasePostsCountParams{
+		NewPostsCount: int32(len(posts)),
+		Slug:          forumSlug,
+	})
 	if err != nil {
 		return fmt.Errorf("update forum: %w", err)
 	}
@@ -84,95 +165,7 @@ func (s *Storage) add(ctx context.Context, posts *Posts, threadId int, forumSlug
 	return nil
 }
 
-func (s *Storage) addPostsOnly(ctx context.Context, posts *Posts, threadId int, forumSlug string) error {
-	queryParams := make([]interface{}, 0, 4*len(*posts))
-	var queryBuilder strings.Builder
-
-	queryBuilder.WriteString("INSERT INTO posts (user_nn, message, parent_id, thread_id, path) VALUES")
-	count := 0
-
-	for _, post := range *posts {
-		if count != 0 {
-			queryBuilder.WriteString(",")
-		}
-		if post.Parent == nil {
-			queryBuilder.WriteString(fmt.Sprintf(" ($%d, $%d, NULL, $%d, NULL)", count+1, count+2, count+3))
-			queryParams = append(queryParams, post.Author, post.Message, threadId)
-			count += 3
-		} else {
-			queryBuilder.WriteString(fmt.Sprintf(" ($%d, $%d, $%d, "+
-				"(SELECT thread_id FROM posts WHERE id = $%d AND thread_id = $%d), "+
-				"(SELECT path || id FROM posts WHERE id = $%d AND thread_id = $%d))",
-				count+1, count+2, count+3, count+3, count+4, count+3, count+4))
-			queryParams = append(queryParams, post.Author, post.Message, post.Parent, threadId)
-			count += 4
-		}
-	}
-	queryBuilder.WriteString(" RETURNING id, created, thread_id")
-
-	rows, err := s.DB.Query(ctx, queryBuilder.String(), queryParams...)
-	if err != nil {
-		return fmt.Errorf("insert posts: %w", err)
-	}
-	defer rows.Close()
-
-	i := 0
-	for rows.Next() {
-		post := (*posts)[i]
-
-		err = rows.Scan(&post.Id, &post.Created, &post.Thread)
-		if err != nil {
-			return fmt.Errorf("scan post: %w", err)
-		}
-
-		post.Forum = &forumSlug
-		i++
-
-	}
-
-	if err = rows.Err(); err != nil {
-		var pgErr *pgconn.PgError
-		if errors.As(err, &pgErr) {
-			switch pgErr.Code {
-			case "23502":
-				return ErrInvalidParent
-			case "23503":
-				return ErrNotFoundUser{Nickname: regexInvalidAuthor.FindStringSubmatch(pgErr.Detail)[1]}
-			}
-		}
-		return fmt.Errorf("scan inserted posts: %w", err)
-	}
-
-	return nil
-}
-
-func (s *Storage) addInsertForumUsers(ctx context.Context, posts *Posts, forumSlug string) error {
-	queryParams := make([]interface{}, 0, 2*len(*posts))
-	var queryBuilder strings.Builder
-
-	queryBuilder.WriteString("INSERT INTO forum_user (forum_slug, user_id) VALUES")
-	count := 0
-
-	for _, post := range *posts {
-		if count != 0 {
-			queryBuilder.WriteString(",")
-		}
-		queryBuilder.WriteString(fmt.Sprintf(" ($%d, (SELECT id FROM users WHERE nickname = $%d))", count+1, count+2))
-		queryParams = append(queryParams, forumSlug, post.Author)
-		count += 2
-	}
-
-	queryBuilder.WriteString(" ON CONFLICT DO NOTHING")
-
-	_, err := s.DB.Exec(ctx, queryBuilder.String(), queryParams...)
-	if err != nil {
-		return fmt.Errorf("insert forum user: %w", err)
-	}
-
-	return nil
-}
-
-func (s *Storage) ById(ctx context.Context, id int, related []string) (*PostFull, error) {
+func (s *Usecase) ById(ctx context.Context, id int, related []string) (*PostFull, error) {
 	userObj := user.User{}
 	forumObj := forum.Forum{}
 	postObj := Post{}
@@ -220,7 +213,7 @@ func (s *Storage) ById(ctx context.Context, id int, related []string) (*PostFull
 	return &result, nil
 }
 
-func (s *Storage) UpdateById(ctx context.Context, id int, post PostUpdate) error {
+func (s *Usecase) UpdateById(ctx context.Context, id int, post PostUpdate) error {
 	if post.Message == nil {
 		return nil
 	}
@@ -243,7 +236,7 @@ func (s *Storage) UpdateById(ctx context.Context, id int, post PostUpdate) error
 	return nil
 }
 
-func (s *Storage) FlatByThreadSlug(ctx context.Context, slug string, limit int, desc bool, since int) (Posts, error) {
+func (s *Usecase) FlatByThreadSlug(ctx context.Context, slug string, limit int, desc bool, since int) ([]Post, error) {
 	var queryBuilder strings.Builder
 	queryBuilder.WriteString(`	SELECT p.user_nn, p.created, t.forum_slug, p.id, p.message, p.parent_id, p.thread_id
 										FROM posts p
@@ -267,7 +260,7 @@ func (s *Storage) FlatByThreadSlug(ctx context.Context, slug string, limit int, 
 	return s.bySlug(ctx, queryBuilder.String(), slug, limit, since)
 }
 
-func (s *Storage) FlatByThreadId(ctx context.Context, id int, limit int, desc bool, since int) (Posts, error) {
+func (s *Usecase) FlatByThreadId(ctx context.Context, id int, limit int, desc bool, since int) ([]Post, error) {
 	var queryBuilder strings.Builder
 	queryBuilder.WriteString(`	SELECT p.user_nn, p.created, t.forum_slug, p.id, p.message, p.parent_id, p.thread_id
 										FROM posts p
@@ -291,7 +284,7 @@ func (s *Storage) FlatByThreadId(ctx context.Context, id int, limit int, desc bo
 	return s.byId(ctx, queryBuilder.String(), id, limit, since)
 }
 
-func (s *Storage) TreeByThreadSlug(ctx context.Context, slug string, limit int, desc bool, since int) (Posts, error) {
+func (s *Usecase) TreeByThreadSlug(ctx context.Context, slug string, limit int, desc bool, since int) ([]Post, error) {
 	var queryBuilder strings.Builder
 	queryBuilder.WriteString(
 		`	SELECT p.user_nn, p.created, t.forum_slug, p.id, p.message, p.parent_id, p.thread_id
@@ -317,7 +310,7 @@ func (s *Storage) TreeByThreadSlug(ctx context.Context, slug string, limit int, 
 	return s.bySlug(ctx, queryBuilder.String(), slug, limit, since)
 }
 
-func (s *Storage) TreeByThreadId(ctx context.Context, id int, limit int, desc bool, since int) (Posts, error) {
+func (s *Usecase) TreeByThreadId(ctx context.Context, id int, limit int, desc bool, since int) ([]Post, error) {
 	var queryBuilder strings.Builder
 	queryBuilder.WriteString(
 		`	SELECT p.user_nn, p.created, (SELECT forum_slug FROM threads WHERE id = $1), p.id, p.message, p.parent_id, p.thread_id
@@ -342,7 +335,7 @@ func (s *Storage) TreeByThreadId(ctx context.Context, id int, limit int, desc bo
 
 	return s.byId(ctx, queryBuilder.String(), id, limit, since)
 }
-func (s *Storage) ParentTreeByThreadSlug(ctx context.Context, slug string, limit int, desc bool, since int) (Posts, error) {
+func (s *Usecase) ParentTreeByThreadSlug(ctx context.Context, slug string, limit int, desc bool, since int) ([]Post, error) {
 	var queryBuilder strings.Builder
 	queryBuilder.WriteString("WITH ranked_posts AS (SELECT p.user_nn, p.created, t.forum_slug, p.id, p.message, p.parent_id, p.thread_id,p.path || p.id AS path,")
 
@@ -368,7 +361,7 @@ func (s *Storage) ParentTreeByThreadSlug(ctx context.Context, slug string, limit
 	return s.bySlug(ctx, queryBuilder.String(), slug, limit, since)
 }
 
-func (s *Storage) ParentTreeByThreadId(ctx context.Context, id int, limit int, desc bool, since int) (Posts, error) {
+func (s *Usecase) ParentTreeByThreadId(ctx context.Context, id int, limit int, desc bool, since int) ([]Post, error) {
 	var queryBuilder strings.Builder
 	queryBuilder.WriteString("WITH ranked_posts AS (SELECT p.user_nn, p.created, t.forum_slug, p.id, p.message, p.parent_id, p.thread_id,p.path || p.id AS path,")
 
@@ -394,7 +387,7 @@ func (s *Storage) ParentTreeByThreadId(ctx context.Context, id int, limit int, d
 	return s.byId(ctx, queryBuilder.String(), id, limit, since)
 }
 
-func (s *Storage) byId(ctx context.Context, query string, id int, limit int, since int) (Posts, error) {
+func (s *Usecase) byId(ctx context.Context, query string, id int, limit int, since int) ([]Post, error) {
 	var rows pgx.Rows
 	var err error
 	if since != 0 {
@@ -408,14 +401,14 @@ func (s *Storage) byId(ctx context.Context, query string, id int, limit int, sin
 	}
 	defer rows.Close()
 
-	posts := make(Posts, 0, 1)
+	posts := make([]Post, 0, 1)
 	for rows.Next() {
 		var post Post
 		err = rows.Scan(&post.Author, &post.Created, &post.Forum, &post.Id, &post.Message, &post.Parent, &post.Thread)
 		if err != nil {
 			return nil, fmt.Errorf("scan posts: %w", err)
 		}
-		posts = append(posts, &post)
+		posts = append(posts, post)
 	}
 	if err = rows.Err(); err != nil {
 		return nil, fmt.Errorf("scan posts: %w", err)
@@ -432,7 +425,7 @@ func (s *Storage) byId(ctx context.Context, query string, id int, limit int, sin
 	return posts, nil
 }
 
-func (s *Storage) bySlug(ctx context.Context, query string, slug string, limit int, since int) (Posts, error) {
+func (s *Usecase) bySlug(ctx context.Context, query string, slug string, limit int, since int) ([]Post, error) {
 	var rows pgx.Rows
 	var err error
 	if since != 0 {
@@ -446,14 +439,14 @@ func (s *Storage) bySlug(ctx context.Context, query string, slug string, limit i
 	}
 	defer rows.Close()
 
-	posts := make(Posts, 0, 1)
+	posts := make([]Post, 0, 1)
 	for rows.Next() {
 		var post Post
 		err = rows.Scan(&post.Author, &post.Created, &post.Forum, &post.Id, &post.Message, &post.Parent, &post.Thread)
 		if err != nil {
 			return nil, fmt.Errorf("get post by slug: %w", err)
 		}
-		posts = append(posts, &post)
+		posts = append(posts, post)
 	}
 	if err = rows.Err(); err != nil {
 		return nil, fmt.Errorf("scan posts: %w", err)

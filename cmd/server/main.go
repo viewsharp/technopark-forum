@@ -11,6 +11,7 @@ import (
 	"github.com/valyala/fasthttp"
 	"go.uber.org/zap"
 
+	"github.com/viewsharp/technopark-forum/internal/db"
 	"github.com/viewsharp/technopark-forum/internal/handlers"
 	"github.com/viewsharp/technopark-forum/internal/router"
 )
@@ -29,9 +30,10 @@ func main() {
 	}
 	defer dbpool.Close()
 
-	storageBundle := handlers.NewStorageBundle(dbpool)
-	//storageBundle := handlers.NewStorageBundle(qlogger.NewQueryLogger(db))
-	serverRouter := router.New(storageBundle)
+	querier := db.New(dbpool)
+
+	usecaseSet := handlers.NewUsecaseSet(dbpool, querier)
+	serverRouter := router.New(usecaseSet)
 
 	log.Printf("starting server at: %s\n", ServerAddr)
 	log.Fatal(fasthttp.ListenAndServe(ServerAddr, func(ctx *fasthttp.RequestCtx) {

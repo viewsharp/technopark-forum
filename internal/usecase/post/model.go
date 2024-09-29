@@ -1,10 +1,11 @@
 package post
 
 import (
-	"github.com/viewsharp/technopark-forum/internal/resources/forum"
-	"github.com/viewsharp/technopark-forum/internal/resources/thread"
-	"github.com/viewsharp/technopark-forum/internal/resources/user"
 	"time"
+
+	"github.com/viewsharp/technopark-forum/internal/usecase/forum"
+	"github.com/viewsharp/technopark-forum/internal/usecase/thread"
+	"github.com/viewsharp/technopark-forum/internal/usecase/user"
 )
 
 type Post struct {
@@ -17,9 +18,6 @@ type Post struct {
 	Parent   *int32     `json:"parent,omitempty"`
 	Thread   *int32     `json:"thread,omitempty"`
 }
-
-//easyjson:json
-type Posts []*Post
 
 type PostFull struct {
 	Author *user.User     `json:"author,omitempty"`
