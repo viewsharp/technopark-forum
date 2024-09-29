@@ -2,28 +2,16 @@ package post
 
 import "errors"
 
-type ErrNotFoundUserClass struct {
-	s        string
-	nickname string
+type ErrNotFoundUser struct {
+	Nickname string
 }
 
-func (e *ErrNotFoundUserClass) setNickname(nickname string) {
-	e.nickname = nickname
-}
-
-func (e ErrNotFoundUserClass) GetNickname() string {
-	return e.nickname
-}
-
-func (e ErrNotFoundUserClass) Error() string {
-	return e.s
+func (e ErrNotFoundUser) Error() string {
+	return "Not found user: " + e.Nickname
 }
 
 var (
-	ErrInvalidParent   = errors.New("invalid parent")
-	ErrNotFoundThread    = ErrNotFoundUserClass{s: "not found thread"}
-	ErrNotFoundUser    = ErrNotFoundUserClass{s: "not found user"}
-	ErrNotFound        = errors.New("not found")
-	ErrUniqueViolation = errors.New("unique violation")
-	ErrUnknown         = errors.New("unknown error")
+	ErrInvalidParent  = errors.New("invalid parent")
+	ErrNotFoundThread = errors.New("not found thread")
+	ErrNotFound       = errors.New("not found")
 )

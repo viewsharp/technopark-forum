@@ -1,7 +1,10 @@
 package handlers
 
 import (
-	"database/sql"
+	"context"
+
+	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgconn"
 
 	"github.com/viewsharp/technopark-forum/internal/resources/forum"
 	"github.com/viewsharp/technopark-forum/internal/resources/post"
@@ -11,9 +14,9 @@ import (
 )
 
 type DB interface {
-	Exec(query string, args ...any) (sql.Result, error)
-	QueryRow(query string, args ...any) *sql.Row
-	Query(query string, args ...any) (*sql.Rows, error)
+	Exec(ctx context.Context, sql string, arguments ...any) (pgconn.CommandTag, error)
+	QueryRow(ctx context.Context, sql string, args ...any) pgx.Row
+	Query(ctx context.Context, sql string, args ...any) (pgx.Rows, error)
 }
 
 type StorageBundle struct {

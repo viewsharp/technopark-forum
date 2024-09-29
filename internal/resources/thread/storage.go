@@ -1,91 +1,92 @@
 package thread
 
 import (
-	"database/sql"
+	"context"
+	"errors"
+	"fmt"
 	"strings"
 
-	"github.com/lib/pq"
+	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgconn"
 )
 
 type DB interface {
-	Exec(query string, args ...any) (sql.Result, error)
-	QueryRow(query string, args ...any) *sql.Row
-	Query(query string, args ...any) (*sql.Rows, error)
+	Exec(ctx context.Context, sql string, arguments ...any) (pgconn.CommandTag, error)
+	QueryRow(ctx context.Context, sql string, args ...any) pgx.Row
+	Query(ctx context.Context, sql string, args ...any) (pgx.Rows, error)
 }
 
 type Storage struct {
 	DB DB
 }
 
-func (s *Storage) Add(thread *Thread) error {
+func (s *Storage) Add(ctx context.Context, thread *Thread) error {
 	err := s.DB.QueryRow(
+		ctx,
 		`	INSERT INTO threads (slug, created, title, message, user_nn, forum_slug)
             	VALUES ($1, $2, $3, $4, $5, (SELECT slug FROM forums WHERE slug = $6))
               	RETURNING id, forum_slug, slug`,
 		thread.Slug, thread.Created, thread.Title, thread.Message, thread.Author, thread.Forum,
 	).Scan(&thread.Id, &thread.Forum, &thread.Slug)
 
-	if err == nil {
-		return nil
+	if err != nil {
+		var pgErr *pgconn.PgError
+		if errors.As(err, &pgErr) {
+			switch pgErr.Code {
+			case "23502":
+				return ErrNotFoundUser
+			case "23503":
+				return ErrNotFoundForum
+			case "23505":
+				return ErrUniqueViolation
+			}
+		}
+		return fmt.Errorf("insert threads: %w", err)
 	}
-
-	switch err.(*pq.Error).Code.Name() {
-	case "unique_violation":
-		return ErrUniqueViolation
-	case "foreign_key_violation":
-		return ErrNotFoundUser
-	case "not_null_violation":
-		return ErrNotFoundForum
-	}
-
-	return ErrUnknown
+	return nil
 }
 
-func (s *Storage) BySlug(slug string) (*Thread, error) {
+func (s *Storage) BySlug(ctx context.Context, slug string) (*Thread, error) {
 	var result Thread
 
 	err := s.DB.QueryRow(
+		ctx,
 		`	SELECT id, slug, created, title, message, user_nn, forum_slug, votes
             	FROM threads
               	WHERE slug = $1`,
 		slug,
 	).Scan(&result.Id, &result.Slug, &result.Created, &result.Title, &result.Message, &result.Author, &result.Forum, &result.Votes)
 
-	if err == nil {
-		return &result, nil
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil, ErrNotFound
+		}
+		return nil, fmt.Errorf("get thread: %w", err)
 	}
-
-	switch err.Error() {
-	case "sql: no rows in result set":
-		return nil, ErrNotFound
-	}
-
-	return nil, ErrUnknown
+	return &result, nil
 }
 
-func (s *Storage) ById(id int) (*Thread, error) {
+func (s *Storage) ById(ctx context.Context, id int) (*Thread, error) {
 	var result Thread
 
 	err := s.DB.QueryRow(
+		ctx,
 		`	SELECT id, slug, created, title, message, user_nn, forum_slug, votes
             	FROM threads
               	WHERE id = $1`,
 		id,
 	).Scan(&result.Id, &result.Slug, &result.Created, &result.Title, &result.Message, &result.Author, &result.Forum, &result.Votes)
 
-	if err == nil {
-		return &result, nil
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil, ErrNotFound
+		}
+		return nil, fmt.Errorf("get thread: %w", err)
 	}
-
-	switch err.Error() {
-	case "sql: no rows in result set":
-		return nil, ErrNotFound
-	}
-
-	return nil, ErrUnknown
+	return &result, nil
 }
 
-func (s *Storage) ByForumSlug(slug string, desc bool, since string, limit int) (*Threads, error) {
+func (s *Storage) ByForumSlug(ctx context.Context, slug string, desc bool, since string, limit int) (*Threads, error) {
 	var queryBuilder strings.Builder
 	queryBuilder.WriteString(`	SELECT id, slug, created, title, message, user_nn, forum_slug, votes
             						FROM threads t
@@ -106,18 +107,17 @@ func (s *Storage) ByForumSlug(slug string, desc bool, since string, limit int) (
 
 	queryBuilder.WriteString(" LIMIT $2")
 
-	var rows *sql.Rows
+	var rows pgx.Rows
 	var err error
 	if since == "" {
-		rows, err = s.DB.Query(queryBuilder.String(), slug, limit)
+		rows, err = s.DB.Query(ctx, queryBuilder.String(), slug, limit)
 	} else {
-		rows, err = s.DB.Query(queryBuilder.String(), slug, limit, since)
+		rows, err = s.DB.Query(ctx, queryBuilder.String(), slug, limit, since)
+	}
+	if err != nil {
+		return nil, fmt.Errorf("select thread: %w", err)
 	}
 	defer rows.Close()
-
-	if err != nil {
-		return nil, ErrUnknown
-	}
 
 	result := make(Threads, 0, limit)
 	for rows.Next() {
@@ -132,17 +132,20 @@ func (s *Storage) ByForumSlug(slug string, desc bool, since string, limit int) (
 			&thread.Forum,
 			&thread.Votes,
 		)
-
 		if err != nil {
-			return nil, ErrUnknown
+			return nil, fmt.Errorf("scan thread: %w", err)
 		}
 
 		result = append(result, &thread)
 	}
+	if err = rows.Err(); err != nil {
+		return nil, fmt.Errorf("scan threads: %w", err)
+	}
+	rows.Close()
 
 	if len(result) == 0 {
 		var forumSlug *string
-		err = s.DB.QueryRow("SELECT slug FROM forums WHERE slug = $1", slug).Scan(&forumSlug)
+		err = s.DB.QueryRow(ctx, "SELECT slug FROM forums WHERE slug = $1", slug).Scan(&forumSlug)
 		if forumSlug == nil {
 			return nil, ErrNotFoundForum
 		}
@@ -151,8 +154,9 @@ func (s *Storage) ByForumSlug(slug string, desc bool, since string, limit int) (
 	return &result, nil
 }
 
-func (s *Storage) UpdateById(id int, thread *ThreadUpdate) error {
+func (s *Storage) UpdateById(ctx context.Context, id int, thread *ThreadUpdate) error {
 	_, err := s.DB.Exec(
+		ctx,
 		`	UPDATE threads 
 				SET title = COALESCE($1, title), message = COALESCE($2, message)
 				WHERE id = $3
@@ -160,25 +164,25 @@ func (s *Storage) UpdateById(id int, thread *ThreadUpdate) error {
 		thread.Title, thread.Message, id,
 	)
 
-	if err == nil {
-		return nil
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return ErrNotFound
+		}
+		var pgErr *pgconn.PgError
+		if errors.As(err, &pgErr) {
+			switch pgErr.Code {
+			case "23505":
+				return ErrUniqueViolation
+			}
+		}
+		return fmt.Errorf("select forum by slug: %w", err)
 	}
-
-	switch err.Error() {
-	case "sql: no rows in result set":
-		return ErrNotFound
-	}
-
-	switch err.(*pq.Error).Code.Name() {
-	case "unique_violation":
-		return ErrUniqueViolation
-	}
-
-	return ErrUnknown
+	return nil
 }
 
-func (s *Storage) UpdateBySlug(slug string, thread *ThreadUpdate) error {
+func (s *Storage) UpdateBySlug(ctx context.Context, slug string, thread *ThreadUpdate) error {
 	_, err := s.DB.Exec(
+		ctx,
 		`	UPDATE threads 
 				SET title = COALESCE($1, title), message = COALESCE($2, message)
 				WHERE slug = $3
@@ -186,19 +190,18 @@ func (s *Storage) UpdateBySlug(slug string, thread *ThreadUpdate) error {
 		thread.Title, thread.Message, slug,
 	)
 
-	if err == nil {
-		return nil
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return ErrNotFound
+		}
+		var pgErr *pgconn.PgError
+		if errors.As(err, &pgErr) {
+			switch pgErr.Code {
+			case "23505":
+				return ErrUniqueViolation
+			}
+		}
+		return fmt.Errorf("select forum by slug: %w", err)
 	}
-
-	switch err.Error() {
-	case "sql: no rows in result set":
-		return ErrNotFound
-	}
-
-	switch err.(*pq.Error).Code.Name() {
-	case "unique_violation":
-		return ErrUniqueViolation
-	}
-
-	return ErrUnknown
+	return nil
 }

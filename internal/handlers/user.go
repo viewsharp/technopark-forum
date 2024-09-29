@@ -26,21 +26,19 @@ func (uh *UserHandler) Create(ctx *fasthttp.RequestCtx) (interface{}, int) {
 	nickname := ctx.UserValue("nickname").(string)
 	obj.Nickname = &nickname
 
-	err = uh.sb.user.Add(&obj)
+	err = uh.sb.user.Add(ctx, &obj)
 	switch err {
 	case nil:
 		return obj, fasthttp.StatusCreated
 	case user2.ErrUniqueViolation:
 		var result user2.Users
 
-		// TODO: Make union
-
-		userByEmail, err := uh.sb.user.ByEmail(*obj.Email)
+		userByEmail, err := uh.sb.user.ByEmail(ctx, *obj.Email)
 		if err == nil {
 			result = append(result, userByEmail)
 		}
 
-		userByNickname, err := uh.sb.user.ByNickname(*obj.Nickname)
+		userByNickname, err := uh.sb.user.ByNickname(ctx, *obj.Nickname)
 		if err == nil {
 			if userByEmail == nil {
 				result = append(result, userByNickname)
@@ -58,7 +56,7 @@ func (uh *UserHandler) Create(ctx *fasthttp.RequestCtx) (interface{}, int) {
 func (uh *UserHandler) Get(ctx *fasthttp.RequestCtx) (interface{}, int) {
 	nickname := ctx.UserValue("nickname").(string)
 
-	result, err := uh.sb.user.ByNickname(nickname)
+	result, err := uh.sb.user.ByNickname(ctx, nickname)
 
 	switch err {
 	case nil:
@@ -81,7 +79,7 @@ func (uh *UserHandler) Update(ctx *fasthttp.RequestCtx) (interface{}, int) {
 		return nil, fasthttp.StatusBadRequest
 	}
 
-	err = uh.sb.user.UpdateByNickname(nickname, &obj)
+	err = uh.sb.user.UpdateByNickname(ctx, nickname, &obj)
 
 	switch err {
 	case nil:
@@ -124,7 +122,7 @@ func (uh *UserHandler) GetByForum(ctx *fasthttp.RequestCtx) (interface{}, int) {
 
 	since := string(ctx.QueryArgs().Peek("since"))
 
-	result, err := uh.sb.user.ByForumSlug(slug, desc, since, limit)
+	result, err := uh.sb.user.ByForumSlug(ctx, slug, desc, since, limit)
 
 	switch err {
 	case nil:

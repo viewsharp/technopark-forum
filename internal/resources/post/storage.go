@@ -1,13 +1,15 @@
 package post
 
 import (
-	"database/sql"
+	"context"
+	"errors"
 	"fmt"
 	"regexp"
 	"strings"
 	"sync"
 
-	"github.com/lib/pq"
+	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgconn"
 
 	"github.com/viewsharp/technopark-forum/internal/resources/forum"
 	"github.com/viewsharp/technopark-forum/internal/resources/thread"
@@ -15,9 +17,9 @@ import (
 )
 
 type DB interface {
-	Exec(query string, args ...any) (sql.Result, error)
-	QueryRow(query string, args ...any) *sql.Row
-	Query(query string, args ...any) (*sql.Rows, error)
+	Exec(ctx context.Context, sql string, arguments ...any) (pgconn.CommandTag, error)
+	QueryRow(ctx context.Context, sql string, args ...any) pgx.Row
+	Query(ctx context.Context, sql string, args ...any) (pgx.Rows, error)
 }
 
 type Storage struct {
@@ -27,47 +29,62 @@ type Storage struct {
 
 var regexInvalidAuthor, _ = regexp.Compile(`^Key \(user_nn\)=\(([\w\.]+)\) is not present in table "users"\.$`)
 
-func (s *Storage) AddByThreadSlug(posts *Posts, slug string) error {
+func (s *Storage) AddByThreadSlug(ctx context.Context, posts *Posts, slug string) error {
 	var threadId int
 	var forumSlug string
 
 	err := s.DB.QueryRow(
+		ctx,
 		`	SELECT id, forum_slug
             	FROM threads
               	WHERE slug = $1`,
 		slug,
 	).Scan(&threadId, &forumSlug)
 
-	if err == nil {
-		return s.add(posts, threadId, forumSlug)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return ErrNotFoundThread
+		}
+		return fmt.Errorf("select thread: %w", err)
 	}
 
-	switch err.Error() {
-	case "sql: no rows in result set":
-		return ErrNotFoundThread
-	}
-
-	return ErrUnknown
+	return s.add(ctx, posts, threadId, forumSlug)
 }
 
-func (s *Storage) AddByThreadId(posts *Posts, threadId int) error {
+func (s *Storage) AddByThreadId(ctx context.Context, posts *Posts, threadId int) error {
 	var forumSlug string
 
-	err := s.DB.QueryRow("SELECT forum_slug FROM threads WHERE id = $1", threadId).Scan(&forumSlug)
-
-	if err == nil {
-		return s.add(posts, threadId, forumSlug)
+	err := s.DB.QueryRow(ctx, "SELECT forum_slug FROM threads WHERE id = $1", threadId).Scan(&forumSlug)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return ErrNotFoundThread
+		}
+		return fmt.Errorf("select thread: %w", err)
 	}
 
-	switch err.Error() {
-	case "sql: no rows in result set":
-		return ErrNotFoundThread
-	}
-
-	return ErrUnknown
+	return s.add(ctx, posts, threadId, forumSlug)
 }
 
-func (s *Storage) add(posts *Posts, threadId int, forumSlug string) error {
+func (s *Storage) add(ctx context.Context, posts *Posts, threadId int, forumSlug string) error {
+	err := s.addPostsOnly(ctx, posts, threadId, forumSlug)
+	if err != nil {
+		return fmt.Errorf("addPostsOnly: %w", err)
+	}
+
+	err = s.addInsertForumUsers(ctx, posts, forumSlug)
+	if err != nil {
+		return fmt.Errorf("addInsertForumUsers: %w", err)
+	}
+
+	_, err = s.DB.Exec(ctx, "UPDATE forums SET posts = posts+$1 WHERE slug = $2", len(*posts), forumSlug)
+	if err != nil {
+		return fmt.Errorf("update forum: %w", err)
+	}
+
+	return nil
+}
+
+func (s *Storage) addPostsOnly(ctx context.Context, posts *Posts, threadId int, forumSlug string) error {
 	queryParams := make([]interface{}, 0, 4*len(*posts))
 	var queryBuilder strings.Builder
 
@@ -93,42 +110,43 @@ func (s *Storage) add(posts *Posts, threadId int, forumSlug string) error {
 	}
 	queryBuilder.WriteString(" RETURNING id, created, thread_id")
 
-	rows, err := s.DB.Query(queryBuilder.String(), queryParams...)
+	rows, err := s.DB.Query(ctx, queryBuilder.String(), queryParams...)
 	if err != nil {
-		switch err.(*pq.Error).Code.Name() {
-		case "not_null_violation":
-			return ErrInvalidParent
-		case "foreign_key_violation":
-			ErrNotFoundUser.setNickname(regexInvalidAuthor.FindStringSubmatch(err.(*pq.Error).Detail)[1])
-			return ErrNotFoundUser
-		}
-
-		return ErrUnknown
+		return fmt.Errorf("insert posts: %w", err)
 	}
 	defer rows.Close()
 
-	_, err = s.DB.Exec("UPDATE forums SET posts = posts+$1 WHERE slug = $2", len(*posts), forumSlug)
-	if err != nil {
-		panic(err)
-	}
-
-	go s.addInsertForumUsers(posts, forumSlug)
-
-	for i := range *posts {
-		rows.Next()
+	i := 0
+	for rows.Next() {
 		post := (*posts)[i]
 
 		err = rows.Scan(&post.Id, &post.Created, &post.Thread)
 		if err != nil {
-			return ErrUnknown
+			return fmt.Errorf("scan post: %w", err)
 		}
+
 		post.Forum = &forumSlug
+		i++
+
+	}
+
+	if err = rows.Err(); err != nil {
+		var pgErr *pgconn.PgError
+		if errors.As(err, &pgErr) {
+			switch pgErr.Code {
+			case "23502":
+				return ErrInvalidParent
+			case "23503":
+				return ErrNotFoundUser{Nickname: regexInvalidAuthor.FindStringSubmatch(pgErr.Detail)[1]}
+			}
+		}
+		return fmt.Errorf("scan inserted posts: %w", err)
 	}
 
 	return nil
 }
 
-func (s *Storage) addInsertForumUsers(posts *Posts, forumSlug string) {
+func (s *Storage) addInsertForumUsers(ctx context.Context, posts *Posts, forumSlug string) error {
 	queryParams := make([]interface{}, 0, 2*len(*posts))
 	var queryBuilder strings.Builder
 
@@ -146,17 +164,15 @@ func (s *Storage) addInsertForumUsers(posts *Posts, forumSlug string) {
 
 	queryBuilder.WriteString(" ON CONFLICT DO NOTHING")
 
-	s.postInsertMX.Lock()
-
-	_, err := s.DB.Exec(queryBuilder.String(), queryParams...)
+	_, err := s.DB.Exec(ctx, queryBuilder.String(), queryParams...)
 	if err != nil {
-		panic(err)
+		return fmt.Errorf("insert forum user: %w", err)
 	}
 
-	s.postInsertMX.Unlock()
+	return nil
 }
 
-func (s *Storage) ById(id int, related []string) (*PostFull, error) {
+func (s *Storage) ById(ctx context.Context, id int, related []string) (*PostFull, error) {
 	userObj := user.User{}
 	forumObj := forum.Forum{}
 	postObj := Post{}
@@ -164,6 +180,7 @@ func (s *Storage) ById(id int, related []string) (*PostFull, error) {
 	result := PostFull{}
 
 	err := s.DB.QueryRow(
+		ctx,
 		`	SELECT 
 					u.about, u.email, u.fullname, u.nickname, 
 					f.posts, f.slug, f.threads, f.title, f.user_nn, 
@@ -182,54 +199,51 @@ func (s *Storage) ById(id int, related []string) (*PostFull, error) {
 		&threadObj.Author, &threadObj.Created, &threadObj.Forum, &threadObj.Id, &threadObj.Message, &threadObj.Slug, &threadObj.Title, &threadObj.Votes,
 	)
 
-	if err == nil {
-		result.Post = &postObj
-		for _, relate := range related {
-			switch relate {
-			case "user":
-				result.Author = &userObj
-			case "thread":
-				result.Thread = &threadObj
-			case "forum":
-				result.Forum = &forumObj
-			}
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil, ErrNotFound
 		}
-		return &result, nil
+		return nil, fmt.Errorf("get post: %w", err)
 	}
 
-	switch err.Error() {
-	case "sql: no rows in result set":
-		return nil, ErrNotFound
+	result.Post = &postObj
+	for _, relate := range related {
+		switch relate {
+		case "user":
+			result.Author = &userObj
+		case "thread":
+			result.Thread = &threadObj
+		case "forum":
+			result.Forum = &forumObj
+		}
 	}
-
-	return nil, ErrUnknown
+	return &result, nil
 }
 
-func (s *Storage) UpdateById(id int, post PostUpdate) error {
+func (s *Storage) UpdateById(ctx context.Context, id int, post PostUpdate) error {
 	if post.Message == nil {
 		return nil
 	}
 
 	_, err := s.DB.Exec(
+		ctx,
 		`	UPDATE posts 
 				SET message = $1, isedited = TRUE
 				WHERE id = $2`,
 		post.Message, id,
 	)
 
-	if err == nil {
-		return nil
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return ErrNotFound
+		}
+		return fmt.Errorf("get post: %w", err)
 	}
 
-	switch err.Error() {
-	case "sql: no rows in result set":
-		return ErrNotFound
-	}
-
-	return ErrUnknown
+	return nil
 }
 
-func (s *Storage) FlatByThreadSlug(slug string, limit int, desc bool, since int) (Posts, error) {
+func (s *Storage) FlatByThreadSlug(ctx context.Context, slug string, limit int, desc bool, since int) (Posts, error) {
 	var queryBuilder strings.Builder
 	queryBuilder.WriteString(`	SELECT p.user_nn, p.created, t.forum_slug, p.id, p.message, p.parent_id, p.thread_id
 										FROM posts p
@@ -250,10 +264,10 @@ func (s *Storage) FlatByThreadSlug(slug string, limit int, desc bool, since int)
 		queryBuilder.WriteString(" ORDER BY p.created, p.id LIMIT $2")
 	}
 
-	return s.bySlug(queryBuilder.String(), slug, limit, since)
+	return s.bySlug(ctx, queryBuilder.String(), slug, limit, since)
 }
 
-func (s *Storage) FlatByThreadId(id int, limit int, desc bool, since int) (Posts, error) {
+func (s *Storage) FlatByThreadId(ctx context.Context, id int, limit int, desc bool, since int) (Posts, error) {
 	var queryBuilder strings.Builder
 	queryBuilder.WriteString(`	SELECT p.user_nn, p.created, t.forum_slug, p.id, p.message, p.parent_id, p.thread_id
 										FROM posts p
@@ -274,10 +288,10 @@ func (s *Storage) FlatByThreadId(id int, limit int, desc bool, since int) (Posts
 		queryBuilder.WriteString(" ORDER BY p.created, p.id LIMIT $2")
 	}
 
-	return s.byId(queryBuilder.String(), id, limit, since)
+	return s.byId(ctx, queryBuilder.String(), id, limit, since)
 }
 
-func (s *Storage) TreeByThreadSlug(slug string, limit int, desc bool, since int) (Posts, error) {
+func (s *Storage) TreeByThreadSlug(ctx context.Context, slug string, limit int, desc bool, since int) (Posts, error) {
 	var queryBuilder strings.Builder
 	queryBuilder.WriteString(
 		`	SELECT p.user_nn, p.created, t.forum_slug, p.id, p.message, p.parent_id, p.thread_id
@@ -300,10 +314,10 @@ func (s *Storage) TreeByThreadSlug(slug string, limit int, desc bool, since int)
 	}
 	queryBuilder.WriteString(" LIMIT $2")
 
-	return s.bySlug(queryBuilder.String(), slug, limit, since)
+	return s.bySlug(ctx, queryBuilder.String(), slug, limit, since)
 }
 
-func (s *Storage) TreeByThreadId(id int, limit int, desc bool, since int) (Posts, error) {
+func (s *Storage) TreeByThreadId(ctx context.Context, id int, limit int, desc bool, since int) (Posts, error) {
 	var queryBuilder strings.Builder
 	queryBuilder.WriteString(
 		`	SELECT p.user_nn, p.created, (SELECT forum_slug FROM threads WHERE id = $1), p.id, p.message, p.parent_id, p.thread_id
@@ -326,9 +340,9 @@ func (s *Storage) TreeByThreadId(id int, limit int, desc bool, since int) (Posts
 	}
 	queryBuilder.WriteString(" LIMIT $2")
 
-	return s.byId(queryBuilder.String(), id, limit, since)
+	return s.byId(ctx, queryBuilder.String(), id, limit, since)
 }
-func (s *Storage) ParentTreeByThreadSlug(slug string, limit int, desc bool, since int) (Posts, error) {
+func (s *Storage) ParentTreeByThreadSlug(ctx context.Context, slug string, limit int, desc bool, since int) (Posts, error) {
 	var queryBuilder strings.Builder
 	queryBuilder.WriteString("WITH ranked_posts AS (SELECT p.user_nn, p.created, t.forum_slug, p.id, p.message, p.parent_id, p.thread_id,p.path || p.id AS path,")
 
@@ -351,10 +365,10 @@ func (s *Storage) ParentTreeByThreadSlug(slug string, limit int, desc bool, sinc
 		queryBuilder.WriteString(" WHERE p.rank <= $2 ORDER BY p.rank, p.path")
 	}
 
-	return s.bySlug(queryBuilder.String(), slug, limit, since)
+	return s.bySlug(ctx, queryBuilder.String(), slug, limit, since)
 }
 
-func (s *Storage) ParentTreeByThreadId(id int, limit int, desc bool, since int) (Posts, error) {
+func (s *Storage) ParentTreeByThreadId(ctx context.Context, id int, limit int, desc bool, since int) (Posts, error) {
 	var queryBuilder strings.Builder
 	queryBuilder.WriteString("WITH ranked_posts AS (SELECT p.user_nn, p.created, t.forum_slug, p.id, p.message, p.parent_id, p.thread_id,p.path || p.id AS path,")
 
@@ -377,20 +391,20 @@ func (s *Storage) ParentTreeByThreadId(id int, limit int, desc bool, since int) 
 		queryBuilder.WriteString(" WHERE p.rank <= $2 ORDER BY p.rank, p.path")
 	}
 
-	return s.byId(queryBuilder.String(), id, limit, since)
+	return s.byId(ctx, queryBuilder.String(), id, limit, since)
 }
 
-func (s *Storage) byId(query string, id int, limit int, since int) (Posts, error) {
-	var rows *sql.Rows
+func (s *Storage) byId(ctx context.Context, query string, id int, limit int, since int) (Posts, error) {
+	var rows pgx.Rows
 	var err error
 	if since != 0 {
-		rows, err = s.DB.Query(query, id, limit, since)
+		rows, err = s.DB.Query(ctx, query, id, limit, since)
 	} else {
-		rows, err = s.DB.Query(query, id, limit)
+		rows, err = s.DB.Query(ctx, query, id, limit)
 	}
 
 	if err != nil {
-		return nil, ErrUnknown
+		return nil, fmt.Errorf("get post by id: %w", err)
 	}
 	defer rows.Close()
 
@@ -399,13 +413,17 @@ func (s *Storage) byId(query string, id int, limit int, since int) (Posts, error
 		var post Post
 		err = rows.Scan(&post.Author, &post.Created, &post.Forum, &post.Id, &post.Message, &post.Parent, &post.Thread)
 		if err != nil {
-			return nil, ErrUnknown
+			return nil, fmt.Errorf("scan posts: %w", err)
 		}
 		posts = append(posts, &post)
 	}
+	if err = rows.Err(); err != nil {
+		return nil, fmt.Errorf("scan posts: %w", err)
+	}
+	rows.Close()
 
 	if len(posts) == 0 {
-		err := s.DB.QueryRow("SELECT id FROM threads WHERE id = $1", id).Scan(&id)
+		err := s.DB.QueryRow(ctx, "SELECT id FROM threads WHERE id = $1", id).Scan(&id)
 		if err != nil {
 			return nil, ErrNotFoundThread
 		}
@@ -414,17 +432,17 @@ func (s *Storage) byId(query string, id int, limit int, since int) (Posts, error
 	return posts, nil
 }
 
-func (s *Storage) bySlug(query string, slug string, limit int, since int) (Posts, error) {
-	var rows *sql.Rows
+func (s *Storage) bySlug(ctx context.Context, query string, slug string, limit int, since int) (Posts, error) {
+	var rows pgx.Rows
 	var err error
 	if since != 0 {
-		rows, err = s.DB.Query(query, slug, limit, since)
+		rows, err = s.DB.Query(ctx, query, slug, limit, since)
 	} else {
-		rows, err = s.DB.Query(query, slug, limit)
+		rows, err = s.DB.Query(ctx, query, slug, limit)
 	}
 
 	if err != nil {
-		return nil, ErrUnknown
+		return nil, fmt.Errorf("get post by slug: %w", err)
 	}
 	defer rows.Close()
 
@@ -433,13 +451,17 @@ func (s *Storage) bySlug(query string, slug string, limit int, since int) (Posts
 		var post Post
 		err = rows.Scan(&post.Author, &post.Created, &post.Forum, &post.Id, &post.Message, &post.Parent, &post.Thread)
 		if err != nil {
-			return nil, ErrUnknown
+			return nil, fmt.Errorf("get post by slug: %w", err)
 		}
 		posts = append(posts, &post)
 	}
+	if err = rows.Err(); err != nil {
+		return nil, fmt.Errorf("scan posts: %w", err)
+	}
+	rows.Close()
 
 	if len(posts) == 0 {
-		err := s.DB.QueryRow("SELECT slug FROM threads WHERE slug = $1", slug).Scan(&slug)
+		err := s.DB.QueryRow(ctx, "SELECT slug FROM threads WHERE slug = $1", slug).Scan(&slug)
 		if err != nil {
 			return nil, ErrNotFoundThread
 		}

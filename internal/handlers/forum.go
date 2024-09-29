@@ -25,12 +25,12 @@ func (fh *ForumHandler) Create(ctx *fasthttp.RequestCtx) (interface{}, int) {
 		return nil, fasthttp.StatusBadRequest
 	}
 
-	err = fh.sb.forum.Add(&obj)
+	err = fh.sb.forum.Add(ctx, &obj)
 	switch err {
 	case nil:
 		return obj, fasthttp.StatusCreated
 	case forum2.ErrUniqueViolation:
-		result, err := fh.sb.forum.BySlug(*obj.Slug)
+		result, err := fh.sb.forum.BySlug(ctx, *obj.Slug)
 		if err == nil {
 			return result, fasthttp.StatusConflict
 		}
@@ -44,7 +44,7 @@ func (fh *ForumHandler) Create(ctx *fasthttp.RequestCtx) (interface{}, int) {
 func (fh *ForumHandler) Get(ctx *fasthttp.RequestCtx) (interface{}, int) {
 	slug := ctx.UserValue("slug").(string)
 
-	result, err := fh.sb.forum.FullBySlug(slug)
+	result, err := fh.sb.forum.FullBySlug(ctx, slug)
 
 	switch err {
 	case nil:

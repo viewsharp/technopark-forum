@@ -1,23 +1,27 @@
 package vote
 
 import (
-	"database/sql"
+	"context"
+	"errors"
+	"fmt"
 
-	"github.com/lib/pq"
+	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgconn"
 )
 
 type DB interface {
-	Exec(query string, args ...any) (sql.Result, error)
-	QueryRow(query string, args ...any) *sql.Row
-	Query(query string, args ...any) (*sql.Rows, error)
+	Exec(ctx context.Context, sql string, arguments ...any) (pgconn.CommandTag, error)
+	QueryRow(ctx context.Context, sql string, args ...any) pgx.Row
+	Query(ctx context.Context, sql string, args ...any) (pgx.Rows, error)
 }
 
 type Storage struct {
 	DB DB
 }
 
-func (s *Storage) AddByThreadId(vote *Vote, threadId int) error {
+func (s *Storage) AddByThreadId(ctx context.Context, vote *Vote, threadId int) error {
 	_, err := s.DB.Exec(
+		ctx,
 		`
 			INSERT INTO votes (thread_id, user_nn, voice) 
 			VALUES ($1, $2, $3) 
@@ -27,22 +31,24 @@ func (s *Storage) AddByThreadId(vote *Vote, threadId int) error {
 		threadId, vote.Nickname, vote.Voice,
 	)
 
-	if err == nil {
-		return nil
+	if err != nil {
+		var pgErr *pgconn.PgError
+		if errors.As(err, &pgErr) {
+			switch pgErr.Code {
+			case "23502":
+				return ErrNotFoundUser
+			case "23503":
+				return ErrNotFoundThread
+			}
+		}
+		return fmt.Errorf("insert vote: %w", err)
 	}
-
-	switch err.(*pq.Error).Code.Name() {
-	case "foreign_key_violation":
-		return ErrNotFoundUser
-	case "not_null_violation":
-		return ErrNotFoundThread
-	}
-
-	return ErrUnknown
+	return nil
 }
 
-func (s *Storage) AddByThreadSlug(vote *Vote, threadSlug string) error {
+func (s *Storage) AddByThreadSlug(ctx context.Context, vote *Vote, threadSlug string) error {
 	_, err := s.DB.Exec(
+		ctx,
 		`
 			INSERT INTO votes (thread_id, user_nn, voice) 
 			VALUES ((SELECT id FROM threads WHERE slug = $1), $2, $3) 
@@ -52,20 +58,17 @@ func (s *Storage) AddByThreadSlug(vote *Vote, threadSlug string) error {
 		threadSlug, vote.Nickname, vote.Voice,
 	)
 
-	if err == nil {
-		return nil
+	if err != nil {
+		var pgErr *pgconn.PgError
+		if errors.As(err, &pgErr) {
+			switch pgErr.Code {
+			case "23502":
+				return ErrNotFoundUser
+			case "23503":
+				return ErrNotFoundThread
+			}
+		}
+		return fmt.Errorf("insert vote: %w", err)
 	}
-
-	switch err.(*pq.Error).Code.Name() {
-	case "foreign_key_violation":
-		return ErrNotFoundUser
-	case "not_null_violation":
-		return ErrNotFoundThread
-	}
-
-	return ErrUnknown
-}
-
-func (s *Storage) Sum() {
-
+	return nil
 }

@@ -2,6 +2,7 @@ package handlers
 
 import (
 	"github.com/valyala/fasthttp"
+
 	"github.com/viewsharp/technopark-forum/internal/resources/status"
 )
 
@@ -15,26 +16,25 @@ func NewServiceHandler(storageBundle *StorageBundle) *ServiceHandler {
 
 func (fh *ServiceHandler) Status(ctx *fasthttp.RequestCtx) (interface{}, int) {
 	var result status.Status
-	err := fh.sb.DB().QueryRow(`	SELECT (SELECT count(*) FROM forums),
-											(SELECT count(*) FROM posts),
-											(SELECT count(*) FROM threads),
-											(SELECT count(*) FROM users);`,
+	err := fh.sb.DB().QueryRow(ctx, `	SELECT (SELECT COUNT(*) FROM forums),
+											(SELECT COUNT(*) FROM posts),
+											(SELECT COUNT(*) FROM threads),
+											(SELECT COUNT(*) FROM users);`,
 	).Scan(&result.Forum, &result.Post, &result.Thread, &result.User)
-
-	if err == nil {
-		return result, fasthttp.StatusOK
+	if err != nil {
+		return Error{
+			Message: err.Error(),
+		}, fasthttp.StatusInternalServerError
 	}
-
-	return nil, fasthttp.StatusInternalServerError
+	return result, fasthttp.StatusOK
 }
 
 func (fh *ServiceHandler) Clear(ctx *fasthttp.RequestCtx) (interface{}, int) {
-	_, err := fh.sb.DB().Exec("TRUNCATE votes, posts, threads, forums, users, forum_user")
-	//
-	if err == nil {
-		//if true {
-		return nil, fasthttp.StatusOK
+	_, err := fh.sb.DB().Exec(ctx, "TRUNCATE votes, posts, threads, forums, users, forum_user")
+	if err != nil {
+		return Error{
+			Message: err.Error(),
+		}, fasthttp.StatusInternalServerError
 	}
-
-	return nil, fasthttp.StatusInternalServerError
+	return nil, fasthttp.StatusOK
 }

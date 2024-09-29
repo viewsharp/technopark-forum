@@ -1,30 +1,34 @@
 package user
 
 import (
-	"database/sql"
+	"context"
+	"errors"
 	"fmt"
 	"strings"
 
-	"github.com/lib/pq"
+	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgconn"
 )
 
 type DB interface {
-	Exec(query string, args ...any) (sql.Result, error)
-	QueryRow(query string, args ...any) *sql.Row
-	Query(query string, args ...any) (*sql.Rows, error)
+	Exec(ctx context.Context, sql string, arguments ...any) (pgconn.CommandTag, error)
+	QueryRow(ctx context.Context, sql string, args ...any) pgx.Row
+	Query(ctx context.Context, sql string, args ...any) (pgx.Rows, error)
 }
 
 type Storage struct {
 	DB DB
 }
 
-func (s *Storage) Add(user *User) error {
+func (s *Storage) Add(ctx context.Context, user *User) error {
 	_, err := s.DB.Exec(
+		ctx,
 		"INSERT INTO users (nickname, fullname, email, about)	VALUES ($1, $2, $3, $4)",
 		user.Nickname, user.FullName, user.Email, user.About,
 	)
 	if err != nil {
-		if err.(*pq.Error).Code.Name() == "unique_violation" {
+		var pgErr *pgconn.PgError
+		if errors.As(err, &pgErr) && pgErr.Code == "23505" {
 			return ErrUniqueViolation
 		}
 		return fmt.Errorf("insert user: %w", err)
@@ -33,15 +37,16 @@ func (s *Storage) Add(user *User) error {
 	return nil
 }
 
-func (s *Storage) ByNickname(nickname string) (*User, error) {
+func (s *Storage) ByNickname(ctx context.Context, nickname string) (*User, error) {
 	var result User
 
 	err := s.DB.QueryRow(
+		ctx,
 		"SELECT nickname, fullname, email, about FROM users WHERE nickname = $1",
 		nickname,
 	).Scan(&result.Nickname, &result.FullName, &result.Email, &result.About)
 	if err != nil {
-		if err.Error() == "sql: no rows in result set" {
+		if errors.Is(err, pgx.ErrNoRows) {
 			return nil, ErrNotFound
 		}
 		return nil, fmt.Errorf("select user: %w", err)
@@ -50,10 +55,10 @@ func (s *Storage) ByNickname(nickname string) (*User, error) {
 	return &result, nil
 }
 
-func (s *Storage) ByEmail(email string) (*User, error) {
+func (s *Storage) ByEmail(ctx context.Context, email string) (*User, error) {
 	var result User
 
-	err := s.DB.QueryRow("SELECT nickname, fullname, email, about FROM users WHERE email = $1", email).Scan(&result.Nickname, &result.FullName, &result.Email, &result.About)
+	err := s.DB.QueryRow(ctx, "SELECT nickname, fullname, email, about FROM users WHERE email = $1", email).Scan(&result.Nickname, &result.FullName, &result.Email, &result.About)
 	if err != nil {
 		return nil, fmt.Errorf("select user: %w", err)
 	}
@@ -61,8 +66,9 @@ func (s *Storage) ByEmail(email string) (*User, error) {
 	return &result, nil
 }
 
-func (s *Storage) UpdateByNickname(nickname string, user *UserUpdate) error {
+func (s *Storage) UpdateByNickname(ctx context.Context, nickname string, user *UserUpdate) error {
 	err := s.DB.QueryRow(
+		ctx,
 		"UPDATE users "+
 			"SET fullname = COALESCE($1, fullname), email = COALESCE($2, email), about = COALESCE($3, about) "+
 			"WHERE nickname = $4 "+
@@ -70,19 +76,20 @@ func (s *Storage) UpdateByNickname(nickname string, user *UserUpdate) error {
 		user.FullName, user.Email, user.About, nickname,
 	).Scan(&user.FullName, &user.Email, &user.About)
 	if err != nil {
-		if pgError, ok := err.(*pq.Error); ok && pgError.Code.Name() == "unique_violation" {
+		var pgErr *pgconn.PgError
+		if errors.As(err, &pgErr) && pgErr.Code == "23505" {
 			return ErrUniqueViolation
 		}
-		if err.Error() == "sql: no rows in result set" {
+		if errors.Is(err, pgx.ErrNoRows) {
 			return ErrNotFound
 		}
-		return fmt.Errorf("insert user: %w", err)
+		return fmt.Errorf("update user: %w", err)
 	}
 
 	return nil
 }
 
-func (s *Storage) ByForumSlug(slug string, desc bool, since string, limit int) (*Users, error) {
+func (s *Storage) ByForumSlug(ctx context.Context, slug string, desc bool, since string, limit int) (*Users, error) {
 	var queryBuilder strings.Builder
 	queryBuilder.WriteString(
 		"SELECT u.nickname, u.fullname, u.email, u.about " +
@@ -105,12 +112,12 @@ func (s *Storage) ByForumSlug(slug string, desc bool, since string, limit int) (
 
 	queryBuilder.WriteString(" LIMIT $2")
 
-	var rows *sql.Rows
+	var rows pgx.Rows
 	var err error
 	if since == "" {
-		rows, err = s.DB.Query(queryBuilder.String(), slug, limit)
+		rows, err = s.DB.Query(ctx, queryBuilder.String(), slug, limit)
 	} else {
-		rows, err = s.DB.Query(queryBuilder.String(), slug, limit, since)
+		rows, err = s.DB.Query(ctx, queryBuilder.String(), slug, limit, since)
 	}
 
 	if err != nil {
@@ -129,9 +136,14 @@ func (s *Storage) ByForumSlug(slug string, desc bool, since string, limit int) (
 		result = append(result, &user)
 	}
 
+	if err = rows.Err(); err != nil {
+		return nil, fmt.Errorf("scan users: %w", err)
+	}
+	rows.Close()
+
 	if len(result) == 0 {
 		var forumSlug *string
-		err = s.DB.QueryRow("SELECT slug FROM forums WHERE slug = $1", slug).Scan(&forumSlug)
+		err = s.DB.QueryRow(ctx, "SELECT slug FROM forums WHERE slug = $1", slug).Scan(&forumSlug)
 		if forumSlug == nil {
 			return nil, ErrNotFoundForum
 		}

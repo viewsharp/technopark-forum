@@ -1,12 +1,15 @@
 package handlers
 
 import (
+	"errors"
 	"fmt"
-	"github.com/valyala/fasthttp"
-	post2 "github.com/viewsharp/technopark-forum/internal/resources/post"
-	"github.com/viewsharp/technopark-forum/internal/resources/thread"
 	"strconv"
 	"strings"
+
+	"github.com/valyala/fasthttp"
+
+	post2 "github.com/viewsharp/technopark-forum/internal/resources/post"
+	"github.com/viewsharp/technopark-forum/internal/resources/thread"
 )
 
 type PostHandler struct {
@@ -29,9 +32,9 @@ func (ph *PostHandler) Create(ctx *fasthttp.RequestCtx) (interface{}, int) {
 
 	if len(posts) == 0 {
 		if threadIdParseErr == nil {
-			_, err = ph.sb.thread.ById(threadId)
+			_, err = ph.sb.thread.ById(ctx, threadId)
 		} else {
-			_, err = ph.sb.thread.BySlug(slugOrId)
+			_, err = ph.sb.thread.BySlug(ctx, slugOrId)
 		}
 
 		switch err {
@@ -49,37 +52,42 @@ func (ph *PostHandler) Create(ctx *fasthttp.RequestCtx) (interface{}, int) {
 			}
 		}
 
-		return nil, fasthttp.StatusInternalServerError
+		return Error{Message: err.Error()}, fasthttp.StatusInternalServerError
 	}
 
 	if threadIdParseErr == nil {
-		err = ph.sb.post.AddByThreadId(&posts, threadId)
+		err = ph.sb.post.AddByThreadId(ctx, &posts, threadId)
 	} else {
-		err = ph.sb.post.AddByThreadSlug(&posts, slugOrId)
+		err = ph.sb.post.AddByThreadSlug(ctx, &posts, slugOrId)
 	}
 
-	switch err {
-	case nil:
-		return posts, fasthttp.StatusCreated
-	case post2.ErrInvalidParent:
-		return Error{Message: "Parent post was created in another thread"}, fasthttp.StatusConflict
-	case post2.ErrNotFoundUser:
-		return Error{
-			Message: "Can't find post author by nickname: " + err.(post2.ErrNotFoundUserClass).GetNickname(),
-		}, fasthttp.StatusNotFound
-	case post2.ErrNotFoundThread:
-		if threadIdParseErr == nil {
+	if err != nil {
+		if errors.Is(err, post2.ErrInvalidParent) {
+			return Error{Message: "Parent post was created in another thread"}, fasthttp.StatusConflict
+		}
+		if errors.Is(err, post2.ErrNotFoundThread) {
+			if threadIdParseErr == nil {
+				return Error{
+					Message: fmt.Sprintf("Can't find post thread by id: %d", threadId),
+				}, fasthttp.StatusNotFound
+			} else {
+				return Error{
+					Message: "Can't find post thread by slug: " + slugOrId,
+				}, fasthttp.StatusNotFound
+			}
+		}
+
+		var errNotFoundUser post2.ErrNotFoundUser
+		if errors.As(err, &errNotFoundUser) {
 			return Error{
-				Message: fmt.Sprintf("Can't find post thread by id: %d", threadId),
-			}, fasthttp.StatusNotFound
-		} else {
-			return Error{
-				Message: "Can't find post thread by slug: " + slugOrId,
+				Message: "Can't find post author by nickname: " + errNotFoundUser.Nickname,
 			}, fasthttp.StatusNotFound
 		}
+
+		return Error{Message: err.Error()}, fasthttp.StatusInternalServerError
 	}
 
-	return nil, fasthttp.StatusInternalServerError
+	return posts, fasthttp.StatusCreated
 }
 
 func (ph *PostHandler) Get(ctx *fasthttp.RequestCtx) (interface{}, int) {
@@ -94,9 +102,9 @@ func (ph *PostHandler) Get(ctx *fasthttp.RequestCtx) (interface{}, int) {
 	related := ctx.QueryArgs().Peek("related")
 
 	if related == nil {
-		result, err = ph.sb.post.ById(postId, nil)
+		result, err = ph.sb.post.ById(ctx, postId, nil)
 	} else {
-		result, err = ph.sb.post.ById(postId, strings.Split(string(related), ","))
+		result, err = ph.sb.post.ById(ctx, postId, strings.Split(string(related), ","))
 	}
 
 	switch err {
@@ -146,21 +154,21 @@ func (ph *PostHandler) GetByThread(ctx *fasthttp.RequestCtx) (interface{}, int) 
 	switch string(ctx.QueryArgs().Peek("sort")) {
 	case "tree":
 		if threadIdParseErr == nil {
-			posts, err = ph.sb.post.TreeByThreadId(threadId, limit, desc, since)
+			posts, err = ph.sb.post.TreeByThreadId(ctx, threadId, limit, desc, since)
 		} else {
-			posts, err = ph.sb.post.TreeByThreadSlug(slugOrId, limit, desc, since)
+			posts, err = ph.sb.post.TreeByThreadSlug(ctx, slugOrId, limit, desc, since)
 		}
 	case "parent_tree":
 		if threadIdParseErr == nil {
-			posts, err = ph.sb.post.ParentTreeByThreadId(threadId, limit, desc, since)
+			posts, err = ph.sb.post.ParentTreeByThreadId(ctx, threadId, limit, desc, since)
 		} else {
-			posts, err = ph.sb.post.ParentTreeByThreadSlug(slugOrId, limit, desc, since)
+			posts, err = ph.sb.post.ParentTreeByThreadSlug(ctx, slugOrId, limit, desc, since)
 		}
 	default:
 		if threadIdParseErr == nil {
-			posts, err = ph.sb.post.FlatByThreadId(threadId, limit, desc, since)
+			posts, err = ph.sb.post.FlatByThreadId(ctx, threadId, limit, desc, since)
 		} else {
-			posts, err = ph.sb.post.FlatByThreadSlug(slugOrId, limit, desc, since)
+			posts, err = ph.sb.post.FlatByThreadSlug(ctx, slugOrId, limit, desc, since)
 		}
 	}
 
@@ -195,13 +203,13 @@ func (ph *PostHandler) Update(ctx *fasthttp.RequestCtx) (interface{}, int) {
 		return nil, fasthttp.StatusBadRequest
 	}
 
-	result, err := ph.sb.post.ById(postId, nil)
+	result, err := ph.sb.post.ById(ctx, postId, nil)
 	switch err {
 	case nil:
 		var err error = nil
 		if obj.Message != nil {
 			if *result.Post.Message != *obj.Message {
-				err = ph.sb.post.UpdateById(postId, obj)
+				err = ph.sb.post.UpdateById(ctx, postId, obj)
 				result.Post.IsEdited = new(bool)
 				*result.Post.IsEdited = true
 				result.Post.Message = obj.Message

@@ -1,12 +1,13 @@
 package main
 
 import (
-	"database/sql"
+	"context"
+	"fmt"
 	"log"
 	"os"
 	"time"
 
-	_ "github.com/lib/pq"
+	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/valyala/fasthttp"
 	"go.uber.org/zap"
 
@@ -21,13 +22,14 @@ func main() {
 	logger, _ := zap.NewProduction()
 	defer logger.Sync()
 
-	db, err := sql.Open("postgres", PostgresDSN)
-	err = db.Ping() // вот тут будет первое подключение к базе
+	dbpool, err := pgxpool.New(context.Background(), PostgresDSN)
 	if err != nil {
-		log.Fatal(err)
+		fmt.Fprintf(os.Stderr, "Unable to create connection pool: %v\n", err)
+		os.Exit(1)
 	}
+	defer dbpool.Close()
 
-	storageBundle := handlers.NewStorageBundle(db)
+	storageBundle := handlers.NewStorageBundle(dbpool)
 	//storageBundle := handlers.NewStorageBundle(qlogger.NewQueryLogger(db))
 	serverRouter := router.New(storageBundle)
 

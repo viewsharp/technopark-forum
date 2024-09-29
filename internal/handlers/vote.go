@@ -2,10 +2,12 @@ package handlers
 
 import (
 	"fmt"
+	"strconv"
+
 	"github.com/valyala/fasthttp"
+
 	"github.com/viewsharp/technopark-forum/internal/resources/thread"
 	vote2 "github.com/viewsharp/technopark-forum/internal/resources/vote"
-	"strconv"
 )
 
 type VoteHandler struct {
@@ -28,10 +30,10 @@ func (vh *VoteHandler) Create(ctx *fasthttp.RequestCtx) (interface{}, int) {
 	threadId, err := strconv.Atoi(slugOrId)
 
 	if err == nil {
-		err = vh.sb.vote.AddByThreadId(&obj, threadId)
+		err = vh.sb.vote.AddByThreadId(ctx, &obj, threadId)
 		switch err {
 		case nil:
-			result, err = vh.sb.thread.ById(threadId)
+			result, err = vh.sb.thread.ById(ctx, threadId)
 		case vote2.ErrNotFoundThread:
 			return Error{
 				Message: fmt.Sprintf("Can't find thread by id: %d", threadId),
@@ -45,10 +47,10 @@ func (vh *VoteHandler) Create(ctx *fasthttp.RequestCtx) (interface{}, int) {
 			return nil, fasthttp.StatusInternalServerError
 		}
 	} else {
-		err = vh.sb.vote.AddByThreadSlug(&obj, slugOrId)
+		err = vh.sb.vote.AddByThreadSlug(ctx, &obj, slugOrId)
 		switch err {
 		case nil:
-			result, err = vh.sb.thread.BySlug(slugOrId)
+			result, err = vh.sb.thread.BySlug(ctx, slugOrId)
 		case vote2.ErrNotFoundThread:
 			return Error{
 				Message: "Can't find user by nickname: " + *obj.Nickname,

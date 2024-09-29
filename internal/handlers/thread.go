@@ -2,9 +2,11 @@ package handlers
 
 import (
 	"fmt"
-	"github.com/valyala/fasthttp"
-	thread2 "github.com/viewsharp/technopark-forum/internal/resources/thread"
 	"strconv"
+
+	"github.com/valyala/fasthttp"
+
+	thread2 "github.com/viewsharp/technopark-forum/internal/resources/thread"
 )
 
 type ThreadHandler struct {
@@ -25,12 +27,12 @@ func (th *ThreadHandler) Create(ctx *fasthttp.RequestCtx) (interface{}, int) {
 	}
 	obj.Forum = &slug
 
-	err = th.sb.thread.Add(&obj)
+	err = th.sb.thread.Add(ctx, &obj)
 	switch err {
 	case nil:
 		return obj, fasthttp.StatusCreated
 	case thread2.ErrUniqueViolation:
-		result, err := th.sb.thread.BySlug(*obj.Slug)
+		result, err := th.sb.thread.BySlug(ctx, *obj.Slug)
 		if err == nil {
 			return result, fasthttp.StatusConflict
 		}
@@ -38,10 +40,9 @@ func (th *ThreadHandler) Create(ctx *fasthttp.RequestCtx) (interface{}, int) {
 		return Error{Message: "Can't find thread author by nickname: " + *obj.Author}, fasthttp.StatusNotFound
 	case thread2.ErrNotFoundForum:
 		return Error{Message: "Can't find thread forum by slug: " + *obj.Forum}, fasthttp.StatusNotFound
-
 	}
 
-	return nil, fasthttp.StatusInternalServerError
+	return Error{Message: err.Error()}, fasthttp.StatusInternalServerError
 }
 
 func (th *ThreadHandler) GetByForum(ctx *fasthttp.RequestCtx) (interface{}, int) {
@@ -65,7 +66,7 @@ func (th *ThreadHandler) GetByForum(ctx *fasthttp.RequestCtx) (interface{}, int)
 
 	since := string(ctx.QueryArgs().Peek("since"))
 
-	result, err := th.sb.thread.ByForumSlug(slug, desc, since, limit)
+	result, err := th.sb.thread.ByForumSlug(ctx, slug, desc, since, limit)
 
 	switch err {
 	case nil:
@@ -83,9 +84,9 @@ func (th *ThreadHandler) Get(ctx *fasthttp.RequestCtx) (interface{}, int) {
 	slugOrId := ctx.UserValue("slug_or_id").(string)
 	threadId, threadIdParseErr := strconv.Atoi(slugOrId)
 	if threadIdParseErr == nil {
-		result, err = th.sb.thread.ById(threadId)
+		result, err = th.sb.thread.ById(ctx, threadId)
 	} else {
-		result, err = th.sb.thread.BySlug(slugOrId)
+		result, err = th.sb.thread.BySlug(ctx, slugOrId)
 	}
 
 	switch err {
@@ -116,17 +117,17 @@ func (th *ThreadHandler) Update(ctx *fasthttp.RequestCtx) (interface{}, int) {
 	slugOrId := ctx.UserValue("slug_or_id").(string)
 	threadId, threadIdErr := strconv.Atoi(slugOrId)
 	if threadIdErr == nil {
-		err = th.sb.thread.UpdateById(threadId, &obj)
+		err = th.sb.thread.UpdateById(ctx, threadId, &obj)
 	} else {
-		err = th.sb.thread.UpdateBySlug(slugOrId, &obj)
+		err = th.sb.thread.UpdateBySlug(ctx, slugOrId, &obj)
 	}
 
 	if err == nil {
 		var result *thread2.Thread
 		if threadIdErr == nil {
-			result, err = th.sb.thread.ById(threadId)
+			result, err = th.sb.thread.ById(ctx, threadId)
 		} else {
-			result, err = th.sb.thread.BySlug(slugOrId)
+			result, err = th.sb.thread.BySlug(ctx, slugOrId)
 		}
 
 		switch err {
