@@ -6,4 +6,4 @@ RETURNING *;
 -- name: ListByID :many
 SELECT *
 FROM posts
-WHERE id = ANY($1::int[]);
+WHERE id = ANY($1::bigint[]);

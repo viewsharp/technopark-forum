@@ -89,7 +89,7 @@ func (s *Usecase) UpdateByNickname(ctx context.Context, nickname string, user *U
 	return nil
 }
 
-func (s *Usecase) ByForumSlug(ctx context.Context, slug string, desc bool, since string, limit int) (*Users, error) {
+func (s *Usecase) ByForumSlug(ctx context.Context, slug string, desc bool, since string, limit int32) (*Users, error) {
 	var queryBuilder strings.Builder
 	queryBuilder.WriteString(
 		"SELECT u.nickname, u.fullname, u.email, u.about " +

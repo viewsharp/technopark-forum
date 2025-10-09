@@ -4,8 +4,10 @@ import (
 	"errors"
 	"fmt"
 	"strconv"
+	"time"
 
 	"github.com/gofiber/fiber/v2"
+	oapitypes "github.com/oapi-codegen/runtime/types"
 
 	"github.com/viewsharp/technopark-forum/internal/api"
 	forumUC "github.com/viewsharp/technopark-forum/internal/usecase/forum"
@@ -50,7 +52,7 @@ func (s *Server) ForumCreate(c *fiber.Ctx) error {
 					Slug:    *result.Slug,
 					Title:   *result.Title,
 					User:    *result.User,
-					Posts:   int32ToInt64Ptr(result.Posts),
+					Posts:   result.Posts,
 					Threads: result.Threads,
 				})
 			}
@@ -66,7 +68,7 @@ func (s *Server) ForumCreate(c *fiber.Ctx) error {
 		Slug:    *createdForum.Slug,
 		Title:   *createdForum.Title,
 		User:    *createdForum.User,
-		Posts:   int32ToInt64Ptr(createdForum.Posts),
+		Posts:   createdForum.Posts,
 		Threads: createdForum.Threads,
 	})
 }
@@ -81,7 +83,7 @@ func (s *Server) ForumGetOne(c *fiber.Ctx, slug string) error {
 			Slug:    *result.Slug,
 			Title:   *result.Title,
 			User:    *result.User,
-			Posts:   int32ToInt64Ptr(result.Posts),
+			Posts:   result.Posts,
 			Threads: result.Threads,
 		})
 	case forumUC.ErrNotFound:
@@ -153,9 +155,9 @@ func (s *Server) ThreadCreate(c *fiber.Ctx, slug string) error {
 
 // ForumGetThreads implements api.ServerInterface
 func (s *Server) ForumGetThreads(c *fiber.Ctx, slug string, params api.ForumGetThreadsParams) error {
-	limit := 100
+	var limit int32 = 100
 	if params.Limit != nil {
-		limit = int32ToInt(*params.Limit)
+		limit = *params.Limit
 	}
 
 	desc := false
@@ -165,7 +167,7 @@ func (s *Server) ForumGetThreads(c *fiber.Ctx, slug string, params api.ForumGetT
 
 	since := ""
 	if params.Since != nil {
-		since = timePtrToString(params.Since)
+		since = params.Since.Format(time.RFC3339Nano)
 	}
 
 	result, err := s.sb.thread.ByForumSlug(c.Context(), slug, desc, since, limit)
@@ -305,7 +307,7 @@ func (s *Server) UserCreate(c *fiber.Ctx, nickname string) error {
 
 	ucUser := user2.User{
 		About:    user.About,
-		Email:    ptrString(emailToString(user.Email)),
+		Email:    ptrString(string(user.Email)),
 		FullName: &user.Fullname,
 		Nickname: &nickname,
 	}
@@ -322,11 +324,11 @@ func (s *Server) UserCreate(c *fiber.Ctx, nickname string) error {
 	case user2.ErrUniqueViolation:
 		var result []api.User
 
-		userByEmail, err := s.sb.user.ByEmail(c.Context(), emailToString(user.Email))
+		userByEmail, err := s.sb.user.ByEmail(c.Context(), string(user.Email))
 		if err == nil {
 			result = append(result, api.User{
 				About:    userByEmail.About,
-				Email:    stringToEmail(*userByEmail.Email),
+				Email:    oapitypes.Email(*userByEmail.Email),
 				Fullname: *userByEmail.FullName,
 				Nickname: userByEmail.Nickname,
 			})
@@ -337,14 +339,14 @@ func (s *Server) UserCreate(c *fiber.Ctx, nickname string) error {
 			if userByEmail == nil {
 				result = append(result, api.User{
 					About:    userByNickname.About,
-					Email:    stringToEmail(*userByNickname.Email),
+					Email:    oapitypes.Email(*userByNickname.Email),
 					Fullname: *userByNickname.FullName,
 					Nickname: userByNickname.Nickname,
 				})
 			} else if *userByNickname.Nickname != *userByEmail.Nickname {
 				result = append(result, api.User{
 					About:    userByNickname.About,
-					Email:    stringToEmail(*userByNickname.Email),
+					Email:    oapitypes.Email(*userByNickname.Email),
 					Fullname: *userByNickname.FullName,
 					Nickname: userByNickname.Nickname,
 				})
@@ -365,7 +367,7 @@ func (s *Server) UserGetOne(c *fiber.Ctx, nickname string) error {
 	case nil:
 		return c.JSON(api.User{
 			About:    result.About,
-			Email:    stringToEmail(*result.Email),
+			Email:    oapitypes.Email(*result.Email),
 			Fullname: *result.FullName,
 			Nickname: result.Nickname,
 		})
@@ -387,7 +389,7 @@ func (s *Server) UserUpdate(c *fiber.Ctx, nickname string) error {
 
 	var emailStr *string
 	if update.Email != nil {
-		emailStr = ptrString(emailToString(*update.Email))
+		emailStr = ptrString(string(*update.Email))
 	}
 
 	ucUpdate := user2.UserUpdate{
@@ -408,7 +410,7 @@ func (s *Server) UserUpdate(c *fiber.Ctx, nickname string) error {
 		})
 	case user2.ErrUniqueViolation:
 		return c.Status(fiber.StatusConflict).JSON(api.Error{
-			Message: ptrString("This email is already registered by user: " + emailToString(*update.Email)),
+			Message: ptrString("This email is already registered by user: " + string(*update.Email)),
 		})
 	case user2.ErrNotFound:
 		return c.Status(fiber.StatusNotFound).JSON(api.Error{
@@ -420,9 +422,9 @@ func (s *Server) UserUpdate(c *fiber.Ctx, nickname string) error {
 
 // ForumGetUsers implements api.ServerInterface
 func (s *Server) ForumGetUsers(c *fiber.Ctx, slug string, params api.ForumGetUsersParams) error {
-	limit := 100
+	var limit int32 = 100
 	if params.Limit != nil {
-		limit = int32ToInt(*params.Limit)
+		limit = *params.Limit
 	}
 
 	desc := false
@@ -443,7 +445,7 @@ func (s *Server) ForumGetUsers(c *fiber.Ctx, slug string, params api.ForumGetUse
 		for i, u := range *result {
 			users[i] = api.User{
 				About:    u.About,
-				Email:    stringToEmail(*u.Email),
+				Email:    oapitypes.Email(*u.Email),
 				Fullname: *u.FullName,
 				Nickname: u.Nickname,
 			}
@@ -502,10 +504,10 @@ func (s *Server) PostsCreate(c *fiber.Ctx, slugOrId string) error {
 			Author:   &p.Author,
 			Created:  p.Created,
 			Forum:    p.Forum,
-			Id:       int64PtrToInt32Ptr(p.Id),
+			Id:       p.Id,
 			IsEdited: p.IsEdited,
 			Message:  &p.Message,
-			Parent:   int64PtrToInt32Ptr(p.Parent),
+			Parent:   p.Parent,
 			Thread:   p.Thread,
 		}
 	}
@@ -551,10 +553,10 @@ func (s *Server) PostsCreate(c *fiber.Ctx, slugOrId string) error {
 			Author:   *p.Author,
 			Created:  p.Created,
 			Forum:    p.Forum,
-			Id:       int32PtrToInt64Ptr(p.Id),
+			Id:       p.Id,
 			IsEdited: p.IsEdited,
 			Message:  *p.Message,
-			Parent:   int32PtrToInt64Ptr(p.Parent),
+			Parent:   p.Parent,
 			Thread:   p.Thread,
 		}
 	}
@@ -571,7 +573,7 @@ func (s *Server) PostGetOne(c *fiber.Ctx, id int64, params api.PostGetOneParams)
 		}
 	}
 
-	result, err := s.sb.post.ById(c.Context(), int64ToInt(id), related)
+	result, err := s.sb.post.ById(c.Context(), id, related)
 
 	switch err {
 	case nil:
@@ -581,17 +583,17 @@ func (s *Server) PostGetOne(c *fiber.Ctx, id int64, params api.PostGetOneParams)
 				Author:   *result.Post.Author,
 				Created:  result.Post.Created,
 				Forum:    result.Post.Forum,
-				Id:       int32PtrToInt64Ptr(result.Post.Id),
+				Id:       result.Post.Id,
 				IsEdited: result.Post.IsEdited,
 				Message:  *result.Post.Message,
-				Parent:   int32PtrToInt64Ptr(result.Post.Parent),
+				Parent:   result.Post.Parent,
 				Thread:   result.Post.Thread,
 			}
 		}
 		if result.Author != nil {
 			response.Author = &api.User{
 				About:    result.Author.About,
-				Email:    stringToEmail(*result.Author.Email),
+				Email:    oapitypes.Email(*result.Author.Email),
 				Fullname: *result.Author.FullName,
 				Nickname: result.Author.Nickname,
 			}
@@ -601,7 +603,7 @@ func (s *Server) PostGetOne(c *fiber.Ctx, id int64, params api.PostGetOneParams)
 				Slug:    *result.Forum.Slug,
 				Title:   *result.Forum.Title,
 				User:    *result.Forum.User,
-				Posts:   int32ToInt64Ptr(result.Forum.Posts),
+				Posts:   result.Forum.Posts,
 				Threads: result.Forum.Threads,
 			}
 		}
@@ -631,9 +633,9 @@ func (s *Server) PostGetOne(c *fiber.Ctx, id int64, params api.PostGetOneParams)
 func (s *Server) ThreadGetPosts(c *fiber.Ctx, slugOrId string, params api.ThreadGetPostsParams) error {
 	threadId, threadIdParseErr := strconv.Atoi(slugOrId)
 
-	limit := 100
+	var limit int32 = 100
 	if params.Limit != nil {
-		limit = int32ToInt(*params.Limit)
+		limit = *params.Limit
 	}
 
 	desc := false
@@ -641,9 +643,9 @@ func (s *Server) ThreadGetPosts(c *fiber.Ctx, slugOrId string, params api.Thread
 		desc = *params.Desc
 	}
 
-	since := 0
+	var since int64
 	if params.Since != nil {
-		since = int64ToInt(*params.Since)
+		since = *params.Since
 	}
 
 	var err error
@@ -682,10 +684,10 @@ func (s *Server) ThreadGetPosts(c *fiber.Ctx, slugOrId string, params api.Thread
 				Author:   *p.Author,
 				Created:  p.Created,
 				Forum:    p.Forum,
-				Id:       int32PtrToInt64Ptr(p.Id),
+				Id:       p.Id,
 				IsEdited: p.IsEdited,
 				Message:  *p.Message,
-				Parent:   int32PtrToInt64Ptr(p.Parent),
+				Parent:   p.Parent,
 				Thread:   p.Thread,
 			}
 		}
@@ -716,13 +718,13 @@ func (s *Server) PostUpdate(c *fiber.Ctx, id int64) error {
 		Message: update.Message,
 	}
 
-	result, err := s.sb.post.ById(c.Context(), int64ToInt(id), nil)
+	result, err := s.sb.post.ById(c.Context(), id, nil)
 	switch err {
 	case nil:
 		var updateErr error
 		if update.Message != nil {
 			if *result.Post.Message != *update.Message {
-				updateErr = s.sb.post.UpdateById(c.Context(), int64ToInt(id), ucUpdate)
+				updateErr = s.sb.post.UpdateById(c.Context(), id, ucUpdate)
 				result.Post.IsEdited = ptrBool(true)
 				result.Post.Message = update.Message
 			}
@@ -733,10 +735,10 @@ func (s *Server) PostUpdate(c *fiber.Ctx, id int64) error {
 				Author:   *result.Post.Author,
 				Created:  result.Post.Created,
 				Forum:    result.Post.Forum,
-				Id:       int32PtrToInt64Ptr(result.Post.Id),
+				Id:       result.Post.Id,
 				IsEdited: result.Post.IsEdited,
 				Message:  *result.Post.Message,
-				Parent:   int32PtrToInt64Ptr(result.Post.Parent),
+				Parent:   result.Post.Parent,
 				Thread:   result.Post.Thread,
 			})
 		}

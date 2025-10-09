@@ -45,7 +45,7 @@ func (s *Usecase) Add(ctx context.Context, forum Forum) (*Forum, error) {
 	}
 
 	return &Forum{
-		Posts:   &dbForum.Posts.Int32,
+		Posts:   &dbForum.Posts.Int64,
 		Slug:    &dbForum.Slug,
 		Threads: &dbForum.Threads.Int32,
 		Title:   &dbForum.Title,

@@ -12,10 +12,10 @@ type Post struct {
 	Author   *string    `json:"author"`
 	Created  *time.Time `json:"created,omitempty"`
 	Forum    *string    `json:"forum,omitempty"`
-	Id       *int32     `json:"id,omitempty"`
+	Id       *int64     `json:"id,omitempty"`
 	IsEdited *bool      `json:"isEdited,omitempty"`
 	Message  *string    `json:"message"`
-	Parent   *int32     `json:"parent,omitempty"`
+	Parent   *int64     `json:"parent,omitempty"`
 	Thread   *int32     `json:"thread,omitempty"`
 }
 

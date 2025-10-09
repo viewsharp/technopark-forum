@@ -59,20 +59,20 @@ func (s *Usecase) AddByThreadId(ctx context.Context, posts []Post, threadId int3
 func (s *Usecase) add(ctx context.Context, posts []Post, threadId int32, forumSlug string) error {
 	// select parents
 
-	parentIDMap := make(map[int32]struct{})
+	parentIDMap := make(map[int64]struct{})
 	for _, post := range posts {
 		if post.Parent != nil {
 			parentIDMap[*post.Parent] = struct{}{}
 		}
 	}
 
-	parentIDs := slices.AppendSeq(make([]int32, 0, len(parentIDMap)), maps.Keys(parentIDMap))
+	parentIDs := slices.AppendSeq(make([]int64, 0, len(parentIDMap)), maps.Keys(parentIDMap))
 	parents, err := s.Queries.ListByID(ctx, parentIDs)
 	if err != nil {
 		return fmt.Errorf("list parents by id: %w", err)
 	}
 
-	parentByID := make(map[int32]db.Post, len(parentIDs))
+	parentByID := make(map[int64]db.Post, len(parentIDs))
 	for _, parent := range parents {
 		parentByID[parent.ID] = parent
 	}
@@ -81,15 +81,15 @@ func (s *Usecase) add(ctx context.Context, posts []Post, threadId int32, forumSl
 
 	postsParams := make([]db.CreatePostsParams, 0, len(posts))
 	for _, post := range posts {
-		var parentID pgtype.Int4
-		var path []int32
+		var parentID pgtype.Int8
+		var path []int64
 		if post.Parent != nil {
 			if parent, ok := parentByID[*post.Parent]; ok {
 				if parent.ThreadID != threadId {
 					return ErrInvalidParent
 				}
 
-				parentID = pgtype.Int4{Int32: parent.ID, Valid: true}
+				parentID = pgtype.Int8{Int64: parent.ID, Valid: true}
 				path = append(parent.Path, parent.ID)
 			} else {
 				return ErrInvalidParent
@@ -126,7 +126,7 @@ func (s *Usecase) add(ctx context.Context, posts []Post, threadId int32, forumSl
 		posts[i].Created = &post.Created.Time
 		posts[i].Id = &post.ID
 		posts[i].Message = &post.Message
-		posts[i].Parent = &post.ParentID.Int32
+		posts[i].Parent = &post.ParentID.Int64
 		posts[i].Thread = &post.ThreadID
 		posts[i].Forum = &forumSlug
 	})
@@ -165,7 +165,7 @@ func (s *Usecase) add(ctx context.Context, posts []Post, threadId int32, forumSl
 	return nil
 }
 
-func (s *Usecase) ById(ctx context.Context, id int, related []string) (*PostFull, error) {
+func (s *Usecase) ById(ctx context.Context, id int64, related []string) (*PostFull, error) {
 	userObj := user.User{}
 	forumObj := forum.Forum{}
 	postObj := Post{}
@@ -213,7 +213,7 @@ func (s *Usecase) ById(ctx context.Context, id int, related []string) (*PostFull
 	return &result, nil
 }
 
-func (s *Usecase) UpdateById(ctx context.Context, id int, post PostUpdate) error {
+func (s *Usecase) UpdateById(ctx context.Context, id int64, post PostUpdate) error {
 	if post.Message == nil {
 		return nil
 	}
@@ -236,7 +236,7 @@ func (s *Usecase) UpdateById(ctx context.Context, id int, post PostUpdate) error
 	return nil
 }
 
-func (s *Usecase) FlatByThreadSlug(ctx context.Context, slug string, limit int, desc bool, since int) ([]Post, error) {
+func (s *Usecase) FlatByThreadSlug(ctx context.Context, slug string, limit int32, desc bool, since int64) ([]Post, error) {
 	var queryBuilder strings.Builder
 	queryBuilder.WriteString(`	SELECT p.user_nn, p.created, t.forum_slug, p.id, p.message, p.parent_id, p.thread_id
 										FROM posts p
@@ -260,7 +260,7 @@ func (s *Usecase) FlatByThreadSlug(ctx context.Context, slug string, limit int, 
 	return s.bySlug(ctx, queryBuilder.String(), slug, limit, since)
 }
 
-func (s *Usecase) FlatByThreadId(ctx context.Context, id int, limit int, desc bool, since int) ([]Post, error) {
+func (s *Usecase) FlatByThreadId(ctx context.Context, id int, limit int32, desc bool, since int64) ([]Post, error) {
 	var queryBuilder strings.Builder
 	queryBuilder.WriteString(`	SELECT p.user_nn, p.created, t.forum_slug, p.id, p.message, p.parent_id, p.thread_id
 										FROM posts p
@@ -284,7 +284,7 @@ func (s *Usecase) FlatByThreadId(ctx context.Context, id int, limit int, desc bo
 	return s.byId(ctx, queryBuilder.String(), id, limit, since)
 }
 
-func (s *Usecase) TreeByThreadSlug(ctx context.Context, slug string, limit int, desc bool, since int) ([]Post, error) {
+func (s *Usecase) TreeByThreadSlug(ctx context.Context, slug string, limit int32, desc bool, since int64) ([]Post, error) {
 	var queryBuilder strings.Builder
 	queryBuilder.WriteString(
 		`	SELECT p.user_nn, p.created, t.forum_slug, p.id, p.message, p.parent_id, p.thread_id
@@ -310,7 +310,7 @@ func (s *Usecase) TreeByThreadSlug(ctx context.Context, slug string, limit int, 
 	return s.bySlug(ctx, queryBuilder.String(), slug, limit, since)
 }
 
-func (s *Usecase) TreeByThreadId(ctx context.Context, id int, limit int, desc bool, since int) ([]Post, error) {
+func (s *Usecase) TreeByThreadId(ctx context.Context, id int, limit int32, desc bool, since int64) ([]Post, error) {
 	var queryBuilder strings.Builder
 	queryBuilder.WriteString(
 		`	SELECT p.user_nn, p.created, (SELECT forum_slug FROM threads WHERE id = $1), p.id, p.message, p.parent_id, p.thread_id
@@ -335,7 +335,7 @@ func (s *Usecase) TreeByThreadId(ctx context.Context, id int, limit int, desc bo
 
 	return s.byId(ctx, queryBuilder.String(), id, limit, since)
 }
-func (s *Usecase) ParentTreeByThreadSlug(ctx context.Context, slug string, limit int, desc bool, since int) ([]Post, error) {
+func (s *Usecase) ParentTreeByThreadSlug(ctx context.Context, slug string, limit int32, desc bool, since int64) ([]Post, error) {
 	var queryBuilder strings.Builder
 	queryBuilder.WriteString("WITH ranked_posts AS (SELECT p.user_nn, p.created, t.forum_slug, p.id, p.message, p.parent_id, p.thread_id,p.path || p.id AS path,")
 
@@ -361,7 +361,7 @@ func (s *Usecase) ParentTreeByThreadSlug(ctx context.Context, slug string, limit
 	return s.bySlug(ctx, queryBuilder.String(), slug, limit, since)
 }
 
-func (s *Usecase) ParentTreeByThreadId(ctx context.Context, id int, limit int, desc bool, since int) ([]Post, error) {
+func (s *Usecase) ParentTreeByThreadId(ctx context.Context, id int, limit int32, desc bool, since int64) ([]Post, error) {
 	var queryBuilder strings.Builder
 	queryBuilder.WriteString("WITH ranked_posts AS (SELECT p.user_nn, p.created, t.forum_slug, p.id, p.message, p.parent_id, p.thread_id,p.path || p.id AS path,")
 
@@ -387,7 +387,7 @@ func (s *Usecase) ParentTreeByThreadId(ctx context.Context, id int, limit int, d
 	return s.byId(ctx, queryBuilder.String(), id, limit, since)
 }
 
-func (s *Usecase) byId(ctx context.Context, query string, id int, limit int, since int) ([]Post, error) {
+func (s *Usecase) byId(ctx context.Context, query string, id int, limit int32, since int64) ([]Post, error) {
 	var rows pgx.Rows
 	var err error
 	if since != 0 {
@@ -425,7 +425,7 @@ func (s *Usecase) byId(ctx context.Context, query string, id int, limit int, sin
 	return posts, nil
 }
 
-func (s *Usecase) bySlug(ctx context.Context, query string, slug string, limit int, since int) ([]Post, error) {
+func (s *Usecase) bySlug(ctx context.Context, query string, slug string, limit int32, since int64) ([]Post, error) {
 	var rows pgx.Rows
 	var err error
 	if since != 0 {

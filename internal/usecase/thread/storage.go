@@ -86,7 +86,7 @@ func (s *Usecase) ById(ctx context.Context, id int) (*Thread, error) {
 	return &result, nil
 }
 
-func (s *Usecase) ByForumSlug(ctx context.Context, slug string, desc bool, since string, limit int) (*Threads, error) {
+func (s *Usecase) ByForumSlug(ctx context.Context, slug string, desc bool, since string, limit int32) (*Threads, error) {
 	var queryBuilder strings.Builder
 	queryBuilder.WriteString(`	SELECT id, slug, created, title, message, user_nn, forum_slug, votes
             						FROM threads t

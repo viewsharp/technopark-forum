@@ -5,10 +5,10 @@ CREATE EXTENSION IF NOT EXISTS citext;
 
 CREATE TABLE IF NOT EXISTS users
 (
-    id       SERIAL NOT NULL UNIQUE,
+    id       BIGSERIAL NOT NULL UNIQUE,
     nickname citext COLLATE "ucs_basic" PRIMARY KEY,
-    fullname TEXT   NOT NULL,
-    email    citext NOT NULL UNIQUE,
+    fullname TEXT      NOT NULL,
+    email    citext    NOT NULL UNIQUE,
     about    TEXT
 );
 
@@ -19,7 +19,7 @@ CREATE TABLE IF NOT EXISTS forums
     slug    citext PRIMARY KEY,
     title   TEXT                               NOT NULL,
     user_nn citext REFERENCES users (nickname) NOT NULL,
-    posts   INTEGER DEFAULT 0, -- Denormalization
+    posts   BIGINT  DEFAULT 0, -- Denormalization
     threads INTEGER DEFAULT 0  -- Denormalization
 );
 
@@ -72,14 +72,14 @@ EXECUTE PROCEDURE threadinsert();
 
 CREATE TABLE IF NOT EXISTS posts
 (
-    id        SERIAL PRIMARY KEY,
+    id        BIGSERIAL PRIMARY KEY,
     created   TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
     isedited  BOOLEAN                  DEFAULT FALSE,
     message   TEXT                               NOT NULL,
-    parent_id INTEGER REFERENCES posts (id),
+    parent_id BIGINT REFERENCES posts (id),
     user_nn   citext REFERENCES users (nickname) NOT NULL,
     thread_id INTEGER REFERENCES threads (id)    NOT NULL,
-    path      INTEGER ARRAY
+    path      BIGINT ARRAY
 );
 
 CREATE INDEX posts__thread_id_created
