@@ -6,25 +6,23 @@ import (
 	"fmt"
 
 	"github.com/jackc/pgx/v5/pgconn"
+	"github.com/jackc/pgx/v5/pgtype"
 
+	"github.com/viewsharp/technopark-forum/internal/db"
 	"github.com/viewsharp/technopark-forum/internal/domain"
 )
 
 type VoteRepository struct {
-	DB Database
+	DB      Database
+	Queries *db.Queries
 }
 
 func (r *VoteRepository) AddByThreadId(ctx context.Context, vote *domain.Vote, threadId int) error {
-	_, err := r.DB.Exec(
-		ctx,
-		`
-			INSERT INTO votes (thread_id, user_nn, voice) 
-			VALUES ($1, $2, $3) 
-			ON CONFLICT ON CONSTRAINT votes_thread_user_unique 
-			DO UPDATE SET voice = $3
-				WHERE votes.thread_id = (SELECT id FROM threads WHERE id = $1) AND votes.user_nn = $2;`,
-		threadId, vote.Nickname, vote.Voice,
-	)
+	err := r.Queries.UpsertVoteById(ctx, db.UpsertVoteByIdParams{
+		ThreadID: int32(threadId),
+		UserNn:   *vote.Nickname,
+		Voice:    pgtype.Int4{Int32: *vote.Voice, Valid: true},
+	})
 
 	if err != nil {
 		var pgErr *pgconn.PgError
@@ -42,16 +40,11 @@ func (r *VoteRepository) AddByThreadId(ctx context.Context, vote *domain.Vote, t
 }
 
 func (r *VoteRepository) AddByThreadSlug(ctx context.Context, vote *domain.Vote, threadSlug string) error {
-	_, err := r.DB.Exec(
-		ctx,
-		`
-			INSERT INTO votes (thread_id, user_nn, voice) 
-			VALUES ((SELECT id FROM threads WHERE slug = $1), $2, $3) 
-			ON CONFLICT ON CONSTRAINT votes_thread_user_unique 
-			DO UPDATE SET voice = $3
-				WHERE votes.thread_id = (SELECT id FROM threads WHERE slug = $1) AND votes.user_nn = $2;`,
-		threadSlug, vote.Nickname, vote.Voice,
-	)
+	err := r.Queries.UpsertVoteBySlug(ctx, db.UpsertVoteBySlugParams{
+		Slug:   pgtype.Text{String: threadSlug, Valid: true},
+		UserNn: *vote.Nickname,
+		Voice:  pgtype.Int4{Int32: *vote.Voice, Valid: true},
+	})
 
 	if err != nil {
 		var pgErr *pgconn.PgError

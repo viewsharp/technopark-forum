@@ -5,7 +5,6 @@ import (
 	"errors"
 	"fmt"
 	"maps"
-	"regexp"
 	"slices"
 	"strings"
 
@@ -21,8 +20,6 @@ type PostRepository struct {
 	DB      Database
 	Queries *db.Queries
 }
-
-var regexInvalidAuthor, _ = regexp.Compile(`^Key \(user_nn\)=\(([\w\.]+)\) is not present in table "users"\.$`)
 
 func (r *PostRepository) AddByThreadSlug(ctx context.Context, posts []domain.Post, slug string) error {
 	dbThread, err := r.Queries.GetThreadBySlug(ctx, pgtype.Text{String: slug, Valid: true})
@@ -210,19 +207,16 @@ func (r *PostRepository) UpdateById(ctx context.Context, id int64, post domain.P
 		return nil
 	}
 
-	_, err := r.DB.Exec(
-		ctx,
-		`	UPDATE posts 
-				SET message = $1, isedited = TRUE
-				WHERE id = $2`,
-		post.Message, id,
-	)
+	err := r.Queries.UpdatePostMessage(ctx, db.UpdatePostMessageParams{
+		Message: *post.Message,
+		ID:      id,
+	})
 
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return domain.ErrNotFound
 		}
-		return fmt.Errorf("get post: %w", err)
+		return fmt.Errorf("update post: %w", err)
 	}
 
 	return nil
@@ -409,7 +403,7 @@ func (r *PostRepository) byId(ctx context.Context, query string, id int, limit i
 	rows.Close()
 
 	if len(posts) == 0 {
-		err := r.DB.QueryRow(ctx, "SELECT id FROM threads WHERE id = $1", id).Scan(&id)
+		_, err := r.Queries.CheckThreadExistsById(ctx, int32(id))
 		if err != nil {
 			return nil, domain.ErrPostNotFoundThread
 		}
@@ -447,7 +441,7 @@ func (r *PostRepository) bySlug(ctx context.Context, query string, slug string, 
 	rows.Close()
 
 	if len(posts) == 0 {
-		err := r.DB.QueryRow(ctx, "SELECT slug FROM threads WHERE slug = $1", slug).Scan(&slug)
+		_, err := r.Queries.CheckThreadExistsBySlug(ctx, pgtype.Text{String: slug, Valid: true})
 		if err != nil {
 			return nil, domain.ErrPostNotFoundThread
 		}

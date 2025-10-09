@@ -176,9 +176,8 @@ func (r *UserRepository) ByForumSlug(ctx context.Context, slug string, desc bool
 	rows.Close()
 
 	if len(result) == 0 {
-		var forumSlug *string
-		_ = r.DB.QueryRow(ctx, "SELECT slug FROM forums WHERE slug = $1", slug).Scan(&forumSlug)
-		if forumSlug == nil {
+		_, err = r.Queries.CheckForumExists(ctx, slug)
+		if err != nil {
 			return nil, domain.ErrUserNotFoundForum
 		}
 	}

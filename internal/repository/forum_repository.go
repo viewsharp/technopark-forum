@@ -49,33 +49,35 @@ func (r *ForumRepository) Add(ctx context.Context, forum domain.Forum) (*domain.
 }
 
 func (r *ForumRepository) BySlug(ctx context.Context, slug string) (*domain.Forum, error) {
-	var result domain.Forum
-
-	err := r.DB.QueryRow(ctx, "SELECT slug, title, user_nn FROM forums WHERE slug = $1",
-		slug,
-	).Scan(&result.Slug, &result.Title, &result.User)
+	dbForum, err := r.Queries.GetForumBySlugLight(ctx, slug)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return nil, domain.ErrNotFound
 		}
 		return nil, fmt.Errorf("select forum by slug: %w", err)
 	}
-	return &result, nil
+
+	return &domain.Forum{
+		Slug:  &dbForum.Slug,
+		Title: &dbForum.Title,
+		User:  &dbForum.UserNn,
+	}, nil
 }
 
 func (r *ForumRepository) FullBySlug(ctx context.Context, slug string) (*domain.Forum, error) {
-	var result domain.Forum
-
-	err := r.DB.QueryRow(
-		ctx,
-		"SELECT posts, slug, threads, title, user_nn FROM forums WHERE slug = $1",
-		slug,
-	).Scan(&result.Posts, &result.Slug, &result.Threads, &result.Title, &result.User)
+	dbForum, err := r.Queries.GetForumBySlug(ctx, slug)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return nil, domain.ErrNotFound
 		}
 		return nil, fmt.Errorf("select forum by slug: %w", err)
 	}
-	return &result, nil
+
+	return &domain.Forum{
+		Posts:   &dbForum.Posts.Int64,
+		Slug:    &dbForum.Slug,
+		Threads: &dbForum.Threads.Int32,
+		Title:   &dbForum.Title,
+		User:    &dbForum.UserNn,
+	}, nil
 }

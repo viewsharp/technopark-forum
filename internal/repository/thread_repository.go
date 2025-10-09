@@ -8,22 +8,41 @@ import (
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
+	"github.com/jackc/pgx/v5/pgtype"
 
+	"github.com/viewsharp/technopark-forum/internal/db"
 	"github.com/viewsharp/technopark-forum/internal/domain"
 )
 
 type ThreadRepository struct {
-	DB Database
+	DB      Database
+	Queries *db.Queries
 }
 
 func (r *ThreadRepository) Add(ctx context.Context, thread *domain.Thread) error {
-	err := r.DB.QueryRow(
-		ctx,
-		`	INSERT INTO threads (slug, created, title, message, user_nn, forum_slug)
-            	VALUES ($1, $2, $3, $4, $5, (SELECT slug FROM forums WHERE slug = $6))
-              	RETURNING id, forum_slug, slug`,
-		thread.Slug, thread.Created, thread.Title, thread.Message, thread.Author, thread.Forum,
-	).Scan(&thread.Id, &thread.Forum, &thread.Slug)
+	var slug pgtype.Text
+	if thread.Slug != nil {
+		slug = pgtype.Text{String: *thread.Slug, Valid: true}
+	}
+
+	var created pgtype.Timestamptz
+	if thread.Created != nil {
+		created = pgtype.Timestamptz{Time: *thread.Created, Valid: true}
+	}
+
+	var message pgtype.Text
+	if thread.Message != nil {
+		message = pgtype.Text{String: *thread.Message, Valid: true}
+	}
+
+	dbThread, err := r.Queries.CreateThread(ctx, db.CreateThreadParams{
+		Slug:    slug,
+		Created: created,
+		Title:   *thread.Title,
+		Message: message,
+		UserNn:  *thread.Author,
+		Slug_2:  *thread.Forum,
+	})
 
 	if err != nil {
 		var pgErr *pgconn.PgError
@@ -39,47 +58,64 @@ func (r *ThreadRepository) Add(ctx context.Context, thread *domain.Thread) error
 		}
 		return fmt.Errorf("insert threads: %w", err)
 	}
+
+	thread.Id = &dbThread.ID
+	thread.Forum = &dbThread.ForumSlug
+	thread.Slug = &dbThread.Slug.String
+
 	return nil
 }
 
 func (r *ThreadRepository) BySlug(ctx context.Context, slug string) (*domain.Thread, error) {
-	var result domain.Thread
-
-	err := r.DB.QueryRow(
-		ctx,
-		`	SELECT id, slug, created, title, message, user_nn, forum_slug, votes
-            	FROM threads
-              	WHERE slug = $1`,
-		slug,
-	).Scan(&result.Id, &result.Slug, &result.Created, &result.Title, &result.Message, &result.Author, &result.Forum, &result.Votes)
-
+	dbThread, err := r.Queries.GetThreadBySlug(ctx, pgtype.Text{String: slug, Valid: true})
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return nil, domain.ErrNotFound
 		}
 		return nil, fmt.Errorf("get thread: %w", err)
 	}
-	return &result, nil
+
+	slugStr := dbThread.Slug.String
+	forumSlug := dbThread.ForumSlug
+	message := dbThread.Message.String
+	votes := dbThread.Votes.Int32
+
+	return &domain.Thread{
+		Id:      &dbThread.ID,
+		Slug:    &slugStr,
+		Created: &dbThread.Created.Time,
+		Title:   &dbThread.Title,
+		Message: &message,
+		Author:  &dbThread.UserNn,
+		Forum:   &forumSlug,
+		Votes:   &votes,
+	}, nil
 }
 
 func (r *ThreadRepository) ById(ctx context.Context, id int) (*domain.Thread, error) {
-	var result domain.Thread
-
-	err := r.DB.QueryRow(
-		ctx,
-		`	SELECT id, slug, created, title, message, user_nn, forum_slug, votes
-            	FROM threads
-              	WHERE id = $1`,
-		id,
-	).Scan(&result.Id, &result.Slug, &result.Created, &result.Title, &result.Message, &result.Author, &result.Forum, &result.Votes)
-
+	dbThread, err := r.Queries.GetThreadByID(ctx, int32(id))
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return nil, domain.ErrNotFound
 		}
 		return nil, fmt.Errorf("get thread: %w", err)
 	}
-	return &result, nil
+
+	slugStr := dbThread.Slug.String
+	forumSlug := dbThread.ForumSlug
+	message := dbThread.Message.String
+	votes := dbThread.Votes.Int32
+
+	return &domain.Thread{
+		Id:      &dbThread.ID,
+		Slug:    &slugStr,
+		Created: &dbThread.Created.Time,
+		Title:   &dbThread.Title,
+		Message: &message,
+		Author:  &dbThread.UserNn,
+		Forum:   &forumSlug,
+		Votes:   &votes,
+	}, nil
 }
 
 func (r *ThreadRepository) ByForumSlug(ctx context.Context, slug string, desc bool, since string, limit int32) (*domain.Threads, error) {
@@ -140,9 +176,8 @@ func (r *ThreadRepository) ByForumSlug(ctx context.Context, slug string, desc bo
 	rows.Close()
 
 	if len(result) == 0 {
-		var forumSlug *string
-		err = r.DB.QueryRow(ctx, "SELECT slug FROM forums WHERE slug = $1", slug).Scan(&forumSlug)
-		if forumSlug == nil {
+		_, err = r.Queries.CheckForumExists(ctx, slug)
+		if err != nil {
 			return nil, domain.ErrThreadNotFoundForum
 		}
 	}
@@ -151,14 +186,21 @@ func (r *ThreadRepository) ByForumSlug(ctx context.Context, slug string, desc bo
 }
 
 func (r *ThreadRepository) UpdateById(ctx context.Context, id int, thread *domain.ThreadUpdate) error {
-	_, err := r.DB.Exec(
-		ctx,
-		`	UPDATE threads 
-				SET title = COALESCE($1, title), message = COALESCE($2, message)
-				WHERE id = $3
-				RETURNING title, message`,
-		thread.Title, thread.Message, id,
-	)
+	var title pgtype.Text
+	if thread.Title != nil {
+		title = pgtype.Text{String: *thread.Title, Valid: true}
+	}
+
+	var message pgtype.Text
+	if thread.Message != nil {
+		message = pgtype.Text{String: *thread.Message, Valid: true}
+	}
+
+	err := r.Queries.UpdateThreadById(ctx, db.UpdateThreadByIdParams{
+		ID:      int32(id),
+		Title:   title,
+		Message: message,
+	})
 
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
@@ -171,20 +213,27 @@ func (r *ThreadRepository) UpdateById(ctx context.Context, id int, thread *domai
 				return domain.ErrUniqueViolation
 			}
 		}
-		return fmt.Errorf("select forum by slug: %w", err)
+		return fmt.Errorf("update thread by id: %w", err)
 	}
 	return nil
 }
 
 func (r *ThreadRepository) UpdateBySlug(ctx context.Context, slug string, thread *domain.ThreadUpdate) error {
-	_, err := r.DB.Exec(
-		ctx,
-		`	UPDATE threads 
-				SET title = COALESCE($1, title), message = COALESCE($2, message)
-				WHERE slug = $3
-				RETURNING title, message`,
-		thread.Title, thread.Message, slug,
-	)
+	var title pgtype.Text
+	if thread.Title != nil {
+		title = pgtype.Text{String: *thread.Title, Valid: true}
+	}
+
+	var message pgtype.Text
+	if thread.Message != nil {
+		message = pgtype.Text{String: *thread.Message, Valid: true}
+	}
+
+	err := r.Queries.UpdateThreadBySlug(ctx, db.UpdateThreadBySlugParams{
+		Slug:    pgtype.Text{String: slug, Valid: true},
+		Title:   title,
+		Message: message,
+	})
 
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
@@ -197,7 +246,7 @@ func (r *ThreadRepository) UpdateBySlug(ctx context.Context, slug string, thread
 				return domain.ErrUniqueViolation
 			}
 		}
-		return fmt.Errorf("select forum by slug: %w", err)
+		return fmt.Errorf("update thread by slug: %w", err)
 	}
 	return nil
 }
