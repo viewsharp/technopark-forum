@@ -1,4 +1,4 @@
-package forum
+package repository
 
 import (
 	"context"
@@ -9,29 +9,24 @@ import (
 	"github.com/jackc/pgx/v5/pgconn"
 
 	"github.com/viewsharp/technopark-forum/internal/db"
+	"github.com/viewsharp/technopark-forum/internal/domain"
 )
 
-type DB interface {
-	Exec(ctx context.Context, sql string, arguments ...any) (pgconn.CommandTag, error)
-	QueryRow(ctx context.Context, sql string, args ...any) pgx.Row
-	Query(ctx context.Context, sql string, args ...any) (pgx.Rows, error)
-}
-
-type Usecase struct {
-	DB      DB
+type ForumRepository struct {
+	DB      Database
 	Queries *db.Queries
 }
 
-func (s *Usecase) Add(ctx context.Context, forum Forum) (*Forum, error) {
-	user, err := s.Queries.GetUserByNickname(ctx, *forum.User)
+func (r *ForumRepository) Add(ctx context.Context, forum domain.Forum) (*domain.Forum, error) {
+	user, err := r.Queries.GetUserByNickname(ctx, *forum.User)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
-			return nil, ErrNotFoundUser
+			return nil, domain.ErrForumNotFoundUser
 		}
 		return nil, fmt.Errorf("get user by nickname: %w", err)
 	}
 
-	dbForum, err := s.Queries.CreateForum(ctx, db.CreateForumParams{
+	dbForum, err := r.Queries.CreateForum(ctx, db.CreateForumParams{
 		Slug:   *forum.Slug,
 		Title:  *forum.Title,
 		UserNn: user.Nickname,
@@ -39,12 +34,12 @@ func (s *Usecase) Add(ctx context.Context, forum Forum) (*Forum, error) {
 	if err != nil {
 		var pgErr *pgconn.PgError
 		if errors.As(err, &pgErr) && pgErr.Code == "23505" {
-			return nil, ErrUniqueViolation
+			return nil, domain.ErrUniqueViolation
 		}
 		return nil, fmt.Errorf("insert forum: %w", err)
 	}
 
-	return &Forum{
+	return &domain.Forum{
 		Posts:   &dbForum.Posts.Int64,
 		Slug:    &dbForum.Slug,
 		Threads: &dbForum.Threads.Int32,
@@ -53,36 +48,34 @@ func (s *Usecase) Add(ctx context.Context, forum Forum) (*Forum, error) {
 	}, nil
 }
 
-func (s *Usecase) BySlug(ctx context.Context, slug string) (*Forum, error) {
-	var result Forum
+func (r *ForumRepository) BySlug(ctx context.Context, slug string) (*domain.Forum, error) {
+	var result domain.Forum
 
-	err := s.DB.QueryRow(ctx, "SELECT slug, title, user_nn FROM forums WHERE slug = $1",
+	err := r.DB.QueryRow(ctx, "SELECT slug, title, user_nn FROM forums WHERE slug = $1",
 		slug,
 	).Scan(&result.Slug, &result.Title, &result.User)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
-			return nil, ErrNotFound
+			return nil, domain.ErrNotFound
 		}
 		return nil, fmt.Errorf("select forum by slug: %w", err)
 	}
 	return &result, nil
 }
 
-func (s *Usecase) FullBySlug(ctx context.Context, slug string) (*Forum, error) {
-	var result Forum
+func (r *ForumRepository) FullBySlug(ctx context.Context, slug string) (*domain.Forum, error) {
+	var result domain.Forum
 
-	err := s.DB.QueryRow(
+	err := r.DB.QueryRow(
 		ctx,
 		"SELECT posts, slug, threads, title, user_nn FROM forums WHERE slug = $1",
 		slug,
 	).Scan(&result.Posts, &result.Slug, &result.Threads, &result.Title, &result.User)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
-			return nil, ErrNotFound
+			return nil, domain.ErrNotFound
 		}
 		return nil, fmt.Errorf("select forum by slug: %w", err)
 	}
 	return &result, nil
 }
-
-//5148.50

@@ -1,4 +1,4 @@
-package user
+package repository
 
 import (
 	"context"
@@ -11,26 +11,21 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 
 	"github.com/viewsharp/technopark-forum/internal/db"
+	"github.com/viewsharp/technopark-forum/internal/domain"
 )
 
-type DB interface {
-	Exec(ctx context.Context, sql string, arguments ...any) (pgconn.CommandTag, error)
-	QueryRow(ctx context.Context, sql string, args ...any) pgx.Row
-	Query(ctx context.Context, sql string, args ...any) (pgx.Rows, error)
-}
-
-type Usecase struct {
-	DB      DB
+type UserRepository struct {
+	DB      Database
 	Queries *db.Queries
 }
 
-func (s *Usecase) Add(ctx context.Context, user *User) error {
+func (r *UserRepository) Add(ctx context.Context, user *domain.User) error {
 	var about pgtype.Text
 	if user.About != nil {
 		about = pgtype.Text{String: *user.About, Valid: true}
 	}
 
-	err := s.Queries.CreateUser(ctx, db.CreateUserParams{
+	err := r.Queries.CreateUser(ctx, db.CreateUserParams{
 		Nickname: user.Nickname,
 		Fullname: user.FullName,
 		Email:    user.Email,
@@ -39,7 +34,7 @@ func (s *Usecase) Add(ctx context.Context, user *User) error {
 	if err != nil {
 		var pgErr *pgconn.PgError
 		if errors.As(err, &pgErr) && pgErr.Code == "23505" {
-			return ErrUniqueViolation
+			return domain.ErrUniqueViolation
 		}
 		return fmt.Errorf("insert user: %w", err)
 	}
@@ -47,11 +42,11 @@ func (s *Usecase) Add(ctx context.Context, user *User) error {
 	return nil
 }
 
-func (s *Usecase) ByNickname(ctx context.Context, nickname string) (*User, error) {
-	dbUser, err := s.Queries.GetUserByNickname(ctx, nickname)
+func (r *UserRepository) ByNickname(ctx context.Context, nickname string) (*domain.User, error) {
+	dbUser, err := r.Queries.GetUserByNickname(ctx, nickname)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
-			return nil, ErrNotFound
+			return nil, domain.ErrNotFound
 		}
 		return nil, fmt.Errorf("select user: %w", err)
 	}
@@ -61,7 +56,7 @@ func (s *Usecase) ByNickname(ctx context.Context, nickname string) (*User, error
 		about = &dbUser.About.String
 	}
 
-	return &User{
+	return &domain.User{
 		Nickname: dbUser.Nickname,
 		FullName: dbUser.Fullname,
 		Email:    dbUser.Email,
@@ -69,8 +64,8 @@ func (s *Usecase) ByNickname(ctx context.Context, nickname string) (*User, error
 	}, nil
 }
 
-func (s *Usecase) ByEmail(ctx context.Context, email string) (*User, error) {
-	dbUser, err := s.Queries.GetUserByEmail(ctx, email)
+func (r *UserRepository) ByEmail(ctx context.Context, email string) (*domain.User, error) {
+	dbUser, err := r.Queries.GetUserByEmail(ctx, email)
 	if err != nil {
 		return nil, fmt.Errorf("select user: %w", err)
 	}
@@ -80,7 +75,7 @@ func (s *Usecase) ByEmail(ctx context.Context, email string) (*User, error) {
 		about = &dbUser.About.String
 	}
 
-	return &User{
+	return &domain.User{
 		Nickname: dbUser.Nickname,
 		FullName: dbUser.Fullname,
 		Email:    dbUser.Email,
@@ -88,7 +83,7 @@ func (s *Usecase) ByEmail(ctx context.Context, email string) (*User, error) {
 	}, nil
 }
 
-func (s *Usecase) UpdateByNickname(ctx context.Context, nickname string, user *UserUpdate) (*User, error) {
+func (r *UserRepository) UpdateByNickname(ctx context.Context, nickname string, user *domain.UserUpdate) (*domain.User, error) {
 	params := db.UpdateUserByNicknameParams{
 		Nickname: nickname,
 	}
@@ -103,14 +98,14 @@ func (s *Usecase) UpdateByNickname(ctx context.Context, nickname string, user *U
 		params.About = pgtype.Text{String: *user.About, Valid: true}
 	}
 
-	dbUser, err := s.Queries.UpdateUserByNickname(ctx, params)
+	dbUser, err := r.Queries.UpdateUserByNickname(ctx, params)
 	if err != nil {
 		var pgErr *pgconn.PgError
 		if errors.As(err, &pgErr) && pgErr.Code == "23505" {
-			return nil, ErrUniqueViolation
+			return nil, domain.ErrUniqueViolation
 		}
 		if errors.Is(err, pgx.ErrNoRows) {
-			return nil, ErrNotFound
+			return nil, domain.ErrNotFound
 		}
 		return nil, fmt.Errorf("update user: %w", err)
 	}
@@ -120,7 +115,7 @@ func (s *Usecase) UpdateByNickname(ctx context.Context, nickname string, user *U
 		about = &dbUser.About.String
 	}
 
-	return &User{
+	return &domain.User{
 		Nickname: dbUser.Nickname,
 		FullName: dbUser.Fullname,
 		Email:    dbUser.Email,
@@ -128,7 +123,7 @@ func (s *Usecase) UpdateByNickname(ctx context.Context, nickname string, user *U
 	}, nil
 }
 
-func (s *Usecase) ByForumSlug(ctx context.Context, slug string, desc bool, since string, limit int32) (*Users, error) {
+func (r *UserRepository) ByForumSlug(ctx context.Context, slug string, desc bool, since string, limit int32) (*domain.Users, error) {
 	var queryBuilder strings.Builder
 	queryBuilder.WriteString(
 		"SELECT u.nickname, u.fullname, u.email, u.about " +
@@ -154,9 +149,9 @@ func (s *Usecase) ByForumSlug(ctx context.Context, slug string, desc bool, since
 	var rows pgx.Rows
 	var err error
 	if since == "" {
-		rows, err = s.DB.Query(ctx, queryBuilder.String(), slug, limit)
+		rows, err = r.DB.Query(ctx, queryBuilder.String(), slug, limit)
 	} else {
-		rows, err = s.DB.Query(ctx, queryBuilder.String(), slug, limit, since)
+		rows, err = r.DB.Query(ctx, queryBuilder.String(), slug, limit, since)
 	}
 
 	if err != nil {
@@ -164,9 +159,9 @@ func (s *Usecase) ByForumSlug(ctx context.Context, slug string, desc bool, since
 	}
 	defer rows.Close()
 
-	result := make(Users, 0, 1)
+	result := make(domain.Users, 0, 1)
 	for rows.Next() {
-		var user User
+		var user domain.User
 		err = rows.Scan(&user.Nickname, &user.FullName, &user.Email, &user.About)
 		if err != nil {
 			return nil, fmt.Errorf("scan users %w", err)
@@ -182,9 +177,9 @@ func (s *Usecase) ByForumSlug(ctx context.Context, slug string, desc bool, since
 
 	if len(result) == 0 {
 		var forumSlug *string
-		_ = s.DB.QueryRow(ctx, "SELECT slug FROM forums WHERE slug = $1", slug).Scan(&forumSlug)
+		_ = r.DB.QueryRow(ctx, "SELECT slug FROM forums WHERE slug = $1", slug).Scan(&forumSlug)
 		if forumSlug == nil {
-			return nil, ErrNotFoundForum
+			return nil, domain.ErrUserNotFoundForum
 		}
 	}
 

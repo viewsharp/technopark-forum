@@ -1,26 +1,21 @@
-package vote
+package repository
 
 import (
 	"context"
 	"errors"
 	"fmt"
 
-	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
+
+	"github.com/viewsharp/technopark-forum/internal/domain"
 )
 
-type DB interface {
-	Exec(ctx context.Context, sql string, arguments ...any) (pgconn.CommandTag, error)
-	QueryRow(ctx context.Context, sql string, args ...any) pgx.Row
-	Query(ctx context.Context, sql string, args ...any) (pgx.Rows, error)
+type VoteRepository struct {
+	DB Database
 }
 
-type Usecase struct {
-	DB DB
-}
-
-func (s *Usecase) AddByThreadId(ctx context.Context, vote *Vote, threadId int) error {
-	_, err := s.DB.Exec(
+func (r *VoteRepository) AddByThreadId(ctx context.Context, vote *domain.Vote, threadId int) error {
+	_, err := r.DB.Exec(
 		ctx,
 		`
 			INSERT INTO votes (thread_id, user_nn, voice) 
@@ -36,9 +31,9 @@ func (s *Usecase) AddByThreadId(ctx context.Context, vote *Vote, threadId int) e
 		if errors.As(err, &pgErr) {
 			switch pgErr.Code {
 			case "23502":
-				return ErrNotFoundUser
+				return domain.ErrVoteNotFoundUser
 			case "23503":
-				return ErrNotFoundThread
+				return domain.ErrVoteNotFoundThread
 			}
 		}
 		return fmt.Errorf("insert vote: %w", err)
@@ -46,8 +41,8 @@ func (s *Usecase) AddByThreadId(ctx context.Context, vote *Vote, threadId int) e
 	return nil
 }
 
-func (s *Usecase) AddByThreadSlug(ctx context.Context, vote *Vote, threadSlug string) error {
-	_, err := s.DB.Exec(
+func (r *VoteRepository) AddByThreadSlug(ctx context.Context, vote *domain.Vote, threadSlug string) error {
+	_, err := r.DB.Exec(
 		ctx,
 		`
 			INSERT INTO votes (thread_id, user_nn, voice) 
@@ -63,9 +58,9 @@ func (s *Usecase) AddByThreadSlug(ctx context.Context, vote *Vote, threadSlug st
 		if errors.As(err, &pgErr) {
 			switch pgErr.Code {
 			case "23502":
-				return ErrNotFoundUser
+				return domain.ErrVoteNotFoundUser
 			case "23503":
-				return ErrNotFoundThread
+				return domain.ErrVoteNotFoundThread
 			}
 		}
 		return fmt.Errorf("insert vote: %w", err)

@@ -1,4 +1,4 @@
-package post
+package repository
 
 import (
 	"context"
@@ -14,49 +14,41 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 
 	"github.com/viewsharp/technopark-forum/internal/db"
-	"github.com/viewsharp/technopark-forum/internal/usecase/forum"
-	"github.com/viewsharp/technopark-forum/internal/usecase/thread"
-	"github.com/viewsharp/technopark-forum/internal/usecase/user"
+	"github.com/viewsharp/technopark-forum/internal/domain"
 )
 
-type DB interface {
-	Exec(ctx context.Context, sql string, arguments ...any) (pgconn.CommandTag, error)
-	QueryRow(ctx context.Context, sql string, args ...any) pgx.Row
-	Query(ctx context.Context, sql string, args ...any) (pgx.Rows, error)
-}
-
-type Usecase struct {
-	DB      DB
+type PostRepository struct {
+	DB      Database
 	Queries *db.Queries
 }
 
 var regexInvalidAuthor, _ = regexp.Compile(`^Key \(user_nn\)=\(([\w\.]+)\) is not present in table "users"\.$`)
 
-func (s *Usecase) AddByThreadSlug(ctx context.Context, posts []Post, slug string) error {
-	dbThread, err := s.Queries.GetThreadBySlug(ctx, pgtype.Text{String: slug, Valid: true})
+func (r *PostRepository) AddByThreadSlug(ctx context.Context, posts []domain.Post, slug string) error {
+	dbThread, err := r.Queries.GetThreadBySlug(ctx, pgtype.Text{String: slug, Valid: true})
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
-			return ErrNotFoundThread
+			return domain.ErrPostNotFoundThread
 		}
 		return fmt.Errorf("select thread: %w", err)
 	}
 
-	return s.add(ctx, posts, dbThread.ID, dbThread.ForumSlug)
+	return r.add(ctx, posts, dbThread.ID, dbThread.ForumSlug)
 }
 
-func (s *Usecase) AddByThreadId(ctx context.Context, posts []Post, threadId int32) error {
-	dbThread, err := s.Queries.GetThreadByID(ctx, threadId)
+func (r *PostRepository) AddByThreadId(ctx context.Context, posts []domain.Post, threadId int32) error {
+	dbThread, err := r.Queries.GetThreadByID(ctx, threadId)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
-			return ErrNotFoundThread
+			return domain.ErrPostNotFoundThread
 		}
 		return fmt.Errorf("select thread: %w", err)
 	}
 
-	return s.add(ctx, posts, threadId, dbThread.ForumSlug)
+	return r.add(ctx, posts, threadId, dbThread.ForumSlug)
 }
 
-func (s *Usecase) add(ctx context.Context, posts []Post, threadId int32, forumSlug string) error {
+func (r *PostRepository) add(ctx context.Context, posts []domain.Post, threadId int32, forumSlug string) error {
 	// select parents
 
 	parentIDMap := make(map[int64]struct{})
@@ -67,7 +59,7 @@ func (s *Usecase) add(ctx context.Context, posts []Post, threadId int32, forumSl
 	}
 
 	parentIDs := slices.AppendSeq(make([]int64, 0, len(parentIDMap)), maps.Keys(parentIDMap))
-	parents, err := s.Queries.ListByID(ctx, parentIDs)
+	parents, err := r.Queries.ListByID(ctx, parentIDs)
 	if err != nil {
 		return fmt.Errorf("list parents by id: %w", err)
 	}
@@ -86,13 +78,13 @@ func (s *Usecase) add(ctx context.Context, posts []Post, threadId int32, forumSl
 		if post.Parent != nil {
 			if parent, ok := parentByID[*post.Parent]; ok {
 				if parent.ThreadID != threadId {
-					return ErrInvalidParent
+					return domain.ErrPostInvalidParent
 				}
 
 				parentID = pgtype.Int8{Int64: parent.ID, Valid: true}
 				path = append(parent.Path, parent.ID)
 			} else {
-				return ErrInvalidParent
+				return domain.ErrPostInvalidParent
 			}
 		}
 
@@ -105,7 +97,7 @@ func (s *Usecase) add(ctx context.Context, posts []Post, threadId int32, forumSl
 		})
 	}
 
-	postsBatch := s.Queries.CreatePosts(ctx, postsParams)
+	postsBatch := r.Queries.CreatePosts(ctx, postsParams)
 	postsBatch.QueryRow(func(i int, post db.Post, batchErr error) {
 		if errors.Is(batchErr, db.ErrBatchAlreadyClosed) {
 			return
@@ -113,7 +105,7 @@ func (s *Usecase) add(ctx context.Context, posts []Post, threadId int32, forumSl
 		if batchErr != nil {
 			var pgErr *pgconn.PgError
 			if errors.As(batchErr, &pgErr) && pgErr.Code == "23503" {
-				err = ErrNotFoundUser{Nickname: post.UserNn}
+				err = domain.ErrPostNotFoundUser{Nickname: post.UserNn}
 			} else {
 				err = batchErr
 			}
@@ -144,7 +136,7 @@ func (s *Usecase) add(ctx context.Context, posts []Post, threadId int32, forumSl
 		})
 	}
 
-	forumUsersBatch := s.Queries.CreateForumUser(ctx, forumUsersParams)
+	forumUsersBatch := r.Queries.CreateForumUser(ctx, forumUsersParams)
 	forumUsersBatch.Exec(func(i int, batchErr error) {
 		if batchErr != nil && !errors.Is(batchErr, db.ErrBatchAlreadyClosed) {
 			err = batchErr
@@ -154,7 +146,7 @@ func (s *Usecase) add(ctx context.Context, posts []Post, threadId int32, forumSl
 
 	// update posts count
 
-	err = s.Queries.IncreasePostsCount(ctx, db.IncreasePostsCountParams{
+	err = r.Queries.IncreasePostsCount(ctx, db.IncreasePostsCountParams{
 		NewPostsCount: int32(len(posts)),
 		Slug:          forumSlug,
 	})
@@ -165,14 +157,14 @@ func (s *Usecase) add(ctx context.Context, posts []Post, threadId int32, forumSl
 	return nil
 }
 
-func (s *Usecase) ById(ctx context.Context, id int64, related []string) (*PostFull, error) {
-	userObj := user.User{}
-	forumObj := forum.Forum{}
-	postObj := Post{}
-	threadObj := thread.Thread{}
-	result := PostFull{}
+func (r *PostRepository) ById(ctx context.Context, id int64, related []string) (*domain.PostFull, error) {
+	userObj := domain.User{}
+	forumObj := domain.Forum{}
+	postObj := domain.Post{}
+	threadObj := domain.Thread{}
+	result := domain.PostFull{}
 
-	err := s.DB.QueryRow(
+	err := r.DB.QueryRow(
 		ctx,
 		`	SELECT 
 					u.about, u.email, u.fullname, u.nickname, 
@@ -194,7 +186,7 @@ func (s *Usecase) ById(ctx context.Context, id int64, related []string) (*PostFu
 
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
-			return nil, ErrNotFound
+			return nil, domain.ErrNotFound
 		}
 		return nil, fmt.Errorf("get post: %w", err)
 	}
@@ -213,12 +205,12 @@ func (s *Usecase) ById(ctx context.Context, id int64, related []string) (*PostFu
 	return &result, nil
 }
 
-func (s *Usecase) UpdateById(ctx context.Context, id int64, post PostUpdate) error {
+func (r *PostRepository) UpdateById(ctx context.Context, id int64, post domain.PostUpdate) error {
 	if post.Message == nil {
 		return nil
 	}
 
-	_, err := s.DB.Exec(
+	_, err := r.DB.Exec(
 		ctx,
 		`	UPDATE posts 
 				SET message = $1, isedited = TRUE
@@ -228,7 +220,7 @@ func (s *Usecase) UpdateById(ctx context.Context, id int64, post PostUpdate) err
 
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
-			return ErrNotFound
+			return domain.ErrNotFound
 		}
 		return fmt.Errorf("get post: %w", err)
 	}
@@ -236,7 +228,7 @@ func (s *Usecase) UpdateById(ctx context.Context, id int64, post PostUpdate) err
 	return nil
 }
 
-func (s *Usecase) FlatByThreadSlug(ctx context.Context, slug string, limit int32, desc bool, since int64) ([]Post, error) {
+func (r *PostRepository) FlatByThreadSlug(ctx context.Context, slug string, limit int32, desc bool, since int64) ([]domain.Post, error) {
 	var queryBuilder strings.Builder
 	queryBuilder.WriteString(`	SELECT p.user_nn, p.created, t.forum_slug, p.id, p.message, p.parent_id, p.thread_id
 										FROM posts p
@@ -257,10 +249,10 @@ func (s *Usecase) FlatByThreadSlug(ctx context.Context, slug string, limit int32
 		queryBuilder.WriteString(" ORDER BY p.created, p.id LIMIT $2")
 	}
 
-	return s.bySlug(ctx, queryBuilder.String(), slug, limit, since)
+	return r.bySlug(ctx, queryBuilder.String(), slug, limit, since)
 }
 
-func (s *Usecase) FlatByThreadId(ctx context.Context, id int, limit int32, desc bool, since int64) ([]Post, error) {
+func (r *PostRepository) FlatByThreadId(ctx context.Context, id int, limit int32, desc bool, since int64) ([]domain.Post, error) {
 	var queryBuilder strings.Builder
 	queryBuilder.WriteString(`	SELECT p.user_nn, p.created, t.forum_slug, p.id, p.message, p.parent_id, p.thread_id
 										FROM posts p
@@ -281,10 +273,10 @@ func (s *Usecase) FlatByThreadId(ctx context.Context, id int, limit int32, desc 
 		queryBuilder.WriteString(" ORDER BY p.created, p.id LIMIT $2")
 	}
 
-	return s.byId(ctx, queryBuilder.String(), id, limit, since)
+	return r.byId(ctx, queryBuilder.String(), id, limit, since)
 }
 
-func (s *Usecase) TreeByThreadSlug(ctx context.Context, slug string, limit int32, desc bool, since int64) ([]Post, error) {
+func (r *PostRepository) TreeByThreadSlug(ctx context.Context, slug string, limit int32, desc bool, since int64) ([]domain.Post, error) {
 	var queryBuilder strings.Builder
 	queryBuilder.WriteString(
 		`	SELECT p.user_nn, p.created, t.forum_slug, p.id, p.message, p.parent_id, p.thread_id
@@ -307,10 +299,10 @@ func (s *Usecase) TreeByThreadSlug(ctx context.Context, slug string, limit int32
 	}
 	queryBuilder.WriteString(" LIMIT $2")
 
-	return s.bySlug(ctx, queryBuilder.String(), slug, limit, since)
+	return r.bySlug(ctx, queryBuilder.String(), slug, limit, since)
 }
 
-func (s *Usecase) TreeByThreadId(ctx context.Context, id int, limit int32, desc bool, since int64) ([]Post, error) {
+func (r *PostRepository) TreeByThreadId(ctx context.Context, id int, limit int32, desc bool, since int64) ([]domain.Post, error) {
 	var queryBuilder strings.Builder
 	queryBuilder.WriteString(
 		`	SELECT p.user_nn, p.created, (SELECT forum_slug FROM threads WHERE id = $1), p.id, p.message, p.parent_id, p.thread_id
@@ -333,9 +325,10 @@ func (s *Usecase) TreeByThreadId(ctx context.Context, id int, limit int32, desc 
 	}
 	queryBuilder.WriteString(" LIMIT $2")
 
-	return s.byId(ctx, queryBuilder.String(), id, limit, since)
+	return r.byId(ctx, queryBuilder.String(), id, limit, since)
 }
-func (s *Usecase) ParentTreeByThreadSlug(ctx context.Context, slug string, limit int32, desc bool, since int64) ([]Post, error) {
+
+func (r *PostRepository) ParentTreeByThreadSlug(ctx context.Context, slug string, limit int32, desc bool, since int64) ([]domain.Post, error) {
 	var queryBuilder strings.Builder
 	queryBuilder.WriteString("WITH ranked_posts AS (SELECT p.user_nn, p.created, t.forum_slug, p.id, p.message, p.parent_id, p.thread_id,p.path || p.id AS path,")
 
@@ -358,10 +351,10 @@ func (s *Usecase) ParentTreeByThreadSlug(ctx context.Context, slug string, limit
 		queryBuilder.WriteString(" WHERE p.rank <= $2 ORDER BY p.rank, p.path")
 	}
 
-	return s.bySlug(ctx, queryBuilder.String(), slug, limit, since)
+	return r.bySlug(ctx, queryBuilder.String(), slug, limit, since)
 }
 
-func (s *Usecase) ParentTreeByThreadId(ctx context.Context, id int, limit int32, desc bool, since int64) ([]Post, error) {
+func (r *PostRepository) ParentTreeByThreadId(ctx context.Context, id int, limit int32, desc bool, since int64) ([]domain.Post, error) {
 	var queryBuilder strings.Builder
 	queryBuilder.WriteString("WITH ranked_posts AS (SELECT p.user_nn, p.created, t.forum_slug, p.id, p.message, p.parent_id, p.thread_id,p.path || p.id AS path,")
 
@@ -384,16 +377,16 @@ func (s *Usecase) ParentTreeByThreadId(ctx context.Context, id int, limit int32,
 		queryBuilder.WriteString(" WHERE p.rank <= $2 ORDER BY p.rank, p.path")
 	}
 
-	return s.byId(ctx, queryBuilder.String(), id, limit, since)
+	return r.byId(ctx, queryBuilder.String(), id, limit, since)
 }
 
-func (s *Usecase) byId(ctx context.Context, query string, id int, limit int32, since int64) ([]Post, error) {
+func (r *PostRepository) byId(ctx context.Context, query string, id int, limit int32, since int64) ([]domain.Post, error) {
 	var rows pgx.Rows
 	var err error
 	if since != 0 {
-		rows, err = s.DB.Query(ctx, query, id, limit, since)
+		rows, err = r.DB.Query(ctx, query, id, limit, since)
 	} else {
-		rows, err = s.DB.Query(ctx, query, id, limit)
+		rows, err = r.DB.Query(ctx, query, id, limit)
 	}
 
 	if err != nil {
@@ -401,9 +394,9 @@ func (s *Usecase) byId(ctx context.Context, query string, id int, limit int32, s
 	}
 	defer rows.Close()
 
-	posts := make([]Post, 0, 1)
+	posts := make([]domain.Post, 0, 1)
 	for rows.Next() {
-		var post Post
+		var post domain.Post
 		err = rows.Scan(&post.Author, &post.Created, &post.Forum, &post.Id, &post.Message, &post.Parent, &post.Thread)
 		if err != nil {
 			return nil, fmt.Errorf("scan posts: %w", err)
@@ -416,22 +409,22 @@ func (s *Usecase) byId(ctx context.Context, query string, id int, limit int32, s
 	rows.Close()
 
 	if len(posts) == 0 {
-		err := s.DB.QueryRow(ctx, "SELECT id FROM threads WHERE id = $1", id).Scan(&id)
+		err := r.DB.QueryRow(ctx, "SELECT id FROM threads WHERE id = $1", id).Scan(&id)
 		if err != nil {
-			return nil, ErrNotFoundThread
+			return nil, domain.ErrPostNotFoundThread
 		}
 	}
 
 	return posts, nil
 }
 
-func (s *Usecase) bySlug(ctx context.Context, query string, slug string, limit int32, since int64) ([]Post, error) {
+func (r *PostRepository) bySlug(ctx context.Context, query string, slug string, limit int32, since int64) ([]domain.Post, error) {
 	var rows pgx.Rows
 	var err error
 	if since != 0 {
-		rows, err = s.DB.Query(ctx, query, slug, limit, since)
+		rows, err = r.DB.Query(ctx, query, slug, limit, since)
 	} else {
-		rows, err = s.DB.Query(ctx, query, slug, limit)
+		rows, err = r.DB.Query(ctx, query, slug, limit)
 	}
 
 	if err != nil {
@@ -439,9 +432,9 @@ func (s *Usecase) bySlug(ctx context.Context, query string, slug string, limit i
 	}
 	defer rows.Close()
 
-	posts := make([]Post, 0, 1)
+	posts := make([]domain.Post, 0, 1)
 	for rows.Next() {
-		var post Post
+		var post domain.Post
 		err = rows.Scan(&post.Author, &post.Created, &post.Forum, &post.Id, &post.Message, &post.Parent, &post.Thread)
 		if err != nil {
 			return nil, fmt.Errorf("get post by slug: %w", err)
@@ -454,9 +447,9 @@ func (s *Usecase) bySlug(ctx context.Context, query string, slug string, limit i
 	rows.Close()
 
 	if len(posts) == 0 {
-		err := s.DB.QueryRow(ctx, "SELECT slug FROM threads WHERE slug = $1", slug).Scan(&slug)
+		err := r.DB.QueryRow(ctx, "SELECT slug FROM threads WHERE slug = $1", slug).Scan(&slug)
 		if err != nil {
-			return nil, ErrNotFoundThread
+			return nil, domain.ErrPostNotFoundThread
 		}
 	}
 

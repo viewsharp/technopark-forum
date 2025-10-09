@@ -1,4 +1,4 @@
-package thread
+package repository
 
 import (
 	"context"
@@ -8,20 +8,16 @@ import (
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
+
+	"github.com/viewsharp/technopark-forum/internal/domain"
 )
 
-type DB interface {
-	Exec(ctx context.Context, sql string, arguments ...any) (pgconn.CommandTag, error)
-	QueryRow(ctx context.Context, sql string, args ...any) pgx.Row
-	Query(ctx context.Context, sql string, args ...any) (pgx.Rows, error)
+type ThreadRepository struct {
+	DB Database
 }
 
-type Usecase struct {
-	DB DB
-}
-
-func (s *Usecase) Add(ctx context.Context, thread *Thread) error {
-	err := s.DB.QueryRow(
+func (r *ThreadRepository) Add(ctx context.Context, thread *domain.Thread) error {
+	err := r.DB.QueryRow(
 		ctx,
 		`	INSERT INTO threads (slug, created, title, message, user_nn, forum_slug)
             	VALUES ($1, $2, $3, $4, $5, (SELECT slug FROM forums WHERE slug = $6))
@@ -34,11 +30,11 @@ func (s *Usecase) Add(ctx context.Context, thread *Thread) error {
 		if errors.As(err, &pgErr) {
 			switch pgErr.Code {
 			case "23502":
-				return ErrNotFoundUser
+				return domain.ErrThreadNotFoundUser
 			case "23503":
-				return ErrNotFoundForum
+				return domain.ErrThreadNotFoundForum
 			case "23505":
-				return ErrUniqueViolation
+				return domain.ErrUniqueViolation
 			}
 		}
 		return fmt.Errorf("insert threads: %w", err)
@@ -46,10 +42,10 @@ func (s *Usecase) Add(ctx context.Context, thread *Thread) error {
 	return nil
 }
 
-func (s *Usecase) BySlug(ctx context.Context, slug string) (*Thread, error) {
-	var result Thread
+func (r *ThreadRepository) BySlug(ctx context.Context, slug string) (*domain.Thread, error) {
+	var result domain.Thread
 
-	err := s.DB.QueryRow(
+	err := r.DB.QueryRow(
 		ctx,
 		`	SELECT id, slug, created, title, message, user_nn, forum_slug, votes
             	FROM threads
@@ -59,17 +55,17 @@ func (s *Usecase) BySlug(ctx context.Context, slug string) (*Thread, error) {
 
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
-			return nil, ErrNotFound
+			return nil, domain.ErrNotFound
 		}
 		return nil, fmt.Errorf("get thread: %w", err)
 	}
 	return &result, nil
 }
 
-func (s *Usecase) ById(ctx context.Context, id int) (*Thread, error) {
-	var result Thread
+func (r *ThreadRepository) ById(ctx context.Context, id int) (*domain.Thread, error) {
+	var result domain.Thread
 
-	err := s.DB.QueryRow(
+	err := r.DB.QueryRow(
 		ctx,
 		`	SELECT id, slug, created, title, message, user_nn, forum_slug, votes
             	FROM threads
@@ -79,14 +75,14 @@ func (s *Usecase) ById(ctx context.Context, id int) (*Thread, error) {
 
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
-			return nil, ErrNotFound
+			return nil, domain.ErrNotFound
 		}
 		return nil, fmt.Errorf("get thread: %w", err)
 	}
 	return &result, nil
 }
 
-func (s *Usecase) ByForumSlug(ctx context.Context, slug string, desc bool, since string, limit int32) (*Threads, error) {
+func (r *ThreadRepository) ByForumSlug(ctx context.Context, slug string, desc bool, since string, limit int32) (*domain.Threads, error) {
 	var queryBuilder strings.Builder
 	queryBuilder.WriteString(`	SELECT id, slug, created, title, message, user_nn, forum_slug, votes
             						FROM threads t
@@ -110,18 +106,18 @@ func (s *Usecase) ByForumSlug(ctx context.Context, slug string, desc bool, since
 	var rows pgx.Rows
 	var err error
 	if since == "" {
-		rows, err = s.DB.Query(ctx, queryBuilder.String(), slug, limit)
+		rows, err = r.DB.Query(ctx, queryBuilder.String(), slug, limit)
 	} else {
-		rows, err = s.DB.Query(ctx, queryBuilder.String(), slug, limit, since)
+		rows, err = r.DB.Query(ctx, queryBuilder.String(), slug, limit, since)
 	}
 	if err != nil {
 		return nil, fmt.Errorf("select thread: %w", err)
 	}
 	defer rows.Close()
 
-	result := make(Threads, 0, limit)
+	result := make(domain.Threads, 0, limit)
 	for rows.Next() {
-		var thread Thread
+		var thread domain.Thread
 		err = rows.Scan(
 			&thread.Id,
 			&thread.Slug,
@@ -145,17 +141,17 @@ func (s *Usecase) ByForumSlug(ctx context.Context, slug string, desc bool, since
 
 	if len(result) == 0 {
 		var forumSlug *string
-		err = s.DB.QueryRow(ctx, "SELECT slug FROM forums WHERE slug = $1", slug).Scan(&forumSlug)
+		err = r.DB.QueryRow(ctx, "SELECT slug FROM forums WHERE slug = $1", slug).Scan(&forumSlug)
 		if forumSlug == nil {
-			return nil, ErrNotFoundForum
+			return nil, domain.ErrThreadNotFoundForum
 		}
 	}
 
 	return &result, nil
 }
 
-func (s *Usecase) UpdateById(ctx context.Context, id int, thread *ThreadUpdate) error {
-	_, err := s.DB.Exec(
+func (r *ThreadRepository) UpdateById(ctx context.Context, id int, thread *domain.ThreadUpdate) error {
+	_, err := r.DB.Exec(
 		ctx,
 		`	UPDATE threads 
 				SET title = COALESCE($1, title), message = COALESCE($2, message)
@@ -166,13 +162,13 @@ func (s *Usecase) UpdateById(ctx context.Context, id int, thread *ThreadUpdate) 
 
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
-			return ErrNotFound
+			return domain.ErrNotFound
 		}
 		var pgErr *pgconn.PgError
 		if errors.As(err, &pgErr) {
 			switch pgErr.Code {
 			case "23505":
-				return ErrUniqueViolation
+				return domain.ErrUniqueViolation
 			}
 		}
 		return fmt.Errorf("select forum by slug: %w", err)
@@ -180,8 +176,8 @@ func (s *Usecase) UpdateById(ctx context.Context, id int, thread *ThreadUpdate) 
 	return nil
 }
 
-func (s *Usecase) UpdateBySlug(ctx context.Context, slug string, thread *ThreadUpdate) error {
-	_, err := s.DB.Exec(
+func (r *ThreadRepository) UpdateBySlug(ctx context.Context, slug string, thread *domain.ThreadUpdate) error {
+	_, err := r.DB.Exec(
 		ctx,
 		`	UPDATE threads 
 				SET title = COALESCE($1, title), message = COALESCE($2, message)
@@ -192,13 +188,13 @@ func (s *Usecase) UpdateBySlug(ctx context.Context, slug string, thread *ThreadU
 
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
-			return ErrNotFound
+			return domain.ErrNotFound
 		}
 		var pgErr *pgconn.PgError
 		if errors.As(err, &pgErr) {
 			switch pgErr.Code {
 			case "23505":
-				return ErrUniqueViolation
+				return domain.ErrUniqueViolation
 			}
 		}
 		return fmt.Errorf("select forum by slug: %w", err)

@@ -2,21 +2,19 @@ package main
 
 import (
 	"context"
-	"fmt"
 	"log"
-	"log/slog"
 	"os"
 
 	"github.com/joho/godotenv"
 
 	json "github.com/bytedance/sonic"
 	"github.com/gofiber/fiber/v2"
-	"github.com/gofiber/fiber/v2/middleware/logger"
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/viewsharp/technopark-forum/internal/api"
 	"github.com/viewsharp/technopark-forum/internal/controller"
 	"github.com/viewsharp/technopark-forum/internal/db"
+	"github.com/viewsharp/technopark-forum/internal/repository"
 )
 
 func main() {
@@ -29,14 +27,13 @@ func main() {
 
 	dbpool, err := pgxpool.New(context.Background(), postgresDSN)
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "Unable to create connection pool: %v\n", err)
-		os.Exit(1)
+		log.Fatalf("Unable to create connection pool: %s", err)
 	}
 	defer dbpool.Close()
 
 	querier := db.New(dbpool)
-	usecaseSet := controller.NewUsecaseSet(dbpool, querier)
-	server := controller.NewServer(usecaseSet)
+	repositorySet := repository.NewRepositorySet(dbpool, querier)
+	server := controller.NewServer(repositorySet)
 
 	app := fiber.New(fiber.Config{
 		JSONEncoder: json.Marshal,
@@ -44,13 +41,9 @@ func main() {
 	})
 
 	// Add logger middleware
-	app.Use(logger.New(logger.Config{
-		Format: "${time} ${status} - ${latency} ${method} ${path}\n",
-	}))
-	app.Use(func(c *fiber.Ctx) error {
-		slog.Info("resp", "body", c.Response().Body())
-		return c.Next()
-	})
+	//app.Use(logger.New(logger.Config{
+	//	Format: "${time} ${status} - ${latency} ${method} ${path}\n",
+	//}))
 
 	// Register API routes with /api prefix
 	apiGroup := app.Group("/api")
