@@ -5,24 +5,21 @@ import (
 	"fmt"
 	"log"
 	"os"
-	"time"
 
+	json "github.com/bytedance/sonic"
+	"github.com/gofiber/fiber/v2"
+	"github.com/gofiber/fiber/v2/middleware/logger"
 	"github.com/jackc/pgx/v5/pgxpool"
-	"github.com/valyala/fasthttp"
-	"go.uber.org/zap"
 
+	"github.com/viewsharp/technopark-forum/internal/api"
+	"github.com/viewsharp/technopark-forum/internal/controller"
 	"github.com/viewsharp/technopark-forum/internal/db"
-	"github.com/viewsharp/technopark-forum/internal/handlers"
-	"github.com/viewsharp/technopark-forum/internal/router"
 )
 
 var ServerAddr = os.Getenv("SERVER_ADDR")
 var PostgresDSN = os.Getenv("POSTGRES_DSN")
 
 func main() {
-	logger, _ := zap.NewProduction()
-	defer logger.Sync()
-
 	dbpool, err := pgxpool.New(context.Background(), PostgresDSN)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Unable to create connection pool: %v\n", err)
@@ -31,20 +28,23 @@ func main() {
 	defer dbpool.Close()
 
 	querier := db.New(dbpool)
+	usecaseSet := controller.NewUsecaseSet(dbpool, querier)
+	server := controller.NewServer(usecaseSet)
 
-	usecaseSet := handlers.NewUsecaseSet(dbpool, querier)
-	serverRouter := router.New(usecaseSet)
+	app := fiber.New(fiber.Config{
+		JSONEncoder: json.Marshal,
+		JSONDecoder: json.Unmarshal,
+	})
+
+	// Add logger middleware
+	app.Use(logger.New(logger.Config{
+		Format: "${time} ${status} - ${latency} ${method} ${path}\n",
+	}))
+
+	// Register API routes with /api prefix
+	apiGroup := app.Group("/api")
+	api.RegisterHandlers(apiGroup, server)
 
 	log.Printf("starting server at: %s\n", ServerAddr)
-	log.Fatal(fasthttp.ListenAndServe(ServerAddr, func(ctx *fasthttp.RequestCtx) {
-		t := time.Now()
-		serverRouter.Handler(ctx)
-		logger.Info(
-			"handled",
-			zap.Int("status", ctx.Response.Header.StatusCode()),
-			zap.ByteString("method", ctx.Method()),
-			zap.Duration("duration", time.Since(t)),
-			zap.ByteString("uri", ctx.Request.Header.RequestURI()),
-		)
-	}))
+	log.Fatal(app.Listen(ServerAddr))
 }
