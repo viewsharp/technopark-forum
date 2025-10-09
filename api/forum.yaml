@@ -144,7 +144,7 @@ paths:
           schema:
             maximum: 10000
             minimum: 1
-            type: number
+            type: integer
             format: int32
             default: 100.0
         - name: since
@@ -198,7 +198,7 @@ paths:
           schema:
             maximum: 10000
             minimum: 1
-            type: number
+            type: integer
             format: int32
             default: 100.0
         - name: since
@@ -242,7 +242,7 @@ paths:
           description: Идентификатор сообщения.
           required: true
           schema:
-            type: number
+            type: integer
             format: int64
         - name: related
           in: query
@@ -289,7 +289,7 @@ paths:
           description: Идентификатор сообщения.
           required: true
           schema:
-            type: number
+            type: integer
             format: int64
       requestBody:
         description: Изменения сообщения.
@@ -471,7 +471,7 @@ paths:
           schema:
             maximum: 10000
             minimum: 1
-            type: number
+            type: integer
             format: int32
             default: 100.0
         - name: since
@@ -480,7 +480,7 @@ paths:
             Идентификатор поста, после которого будут выводиться записи
             (пост с данным идентификатором в результат не попадает).
           schema:
-            type: number
+            type: integer
             format: int64
         - name: sort
           in: query
@@ -693,25 +693,25 @@ components:
       type: object
       properties:
         user:
-          type: number
+          type: integer
           description: Кол-во пользователей в базе данных.
           format: int32
           example: 1000.0
           x-isnullable: false
         forum:
-          type: number
+          type: integer
           description: Кол-во разделов в базе данных.
           format: int32
           example: 100.0
           x-isnullable: false
         thread:
-          type: number
+          type: integer
           description: Кол-во веток обсуждения в базе данных.
           format: int32
           example: 1000.0
           x-isnullable: false
         post:
-          type: number
+          type: integer
           description: Кол-во сообщений в базе данных.
           format: int64
           example: 1000000.0
@@ -801,14 +801,14 @@ components:
           example: pirate-stories
           x-isnullable: false
         posts:
-          type: number
+          type: integer
           description: |
             Общее кол-во сообщений в данном форуме.
           format: int64
           readOnly: true
           example: 200000.0
         threads:
-          type: number
+          type: integer
           description: |
             Общее кол-во ветвей обсуждения в данном форуме.
           format: int32
@@ -824,7 +824,7 @@ components:
       type: object
       properties:
         id:
-          type: number
+          type: integer
           description: Идентификатор ветки обсуждения.
           format: int32
           readOnly: true
@@ -854,7 +854,7 @@ components:
             willing to help in this matter?
           x-isnullable: false
         votes:
-          type: number
+          type: integer
           description: Кол-во голосов непосредственно за данное сообщение форума.
           format: int32
           readOnly: true
@@ -902,12 +902,12 @@ components:
       type: object
       properties:
         id:
-          type: number
+          type: integer
           description: Идентификатор данного сообщения.
           format: int64
           readOnly: true
         parent:
-          type: number
+          type: integer
           description: |
             Идентификатор родительского сообщения (0 - корневое сообщение обсуждения).
           format: int64
@@ -934,7 +934,7 @@ components:
           format: identity
           readOnly: true
         thread:
-          type: number
+          type: integer
           description: Идентификатор ветви (id) обсуждения данного сообещния.
           format: int32
           readOnly: true
@@ -986,7 +986,7 @@ components:
           format: identity
           x-isnullable: false
         voice:
-          type: number
+          type: integer
           description: Отданный голос.
           format: int32
           x-isnullable: false

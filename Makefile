@@ -8,3 +8,14 @@ perf:
 	tech-db-forum perf -u http://localhost:8000/api
 sqlc:
 	sqlc generate -f internal/db/sqlc.yaml
+
+# Generate API models from OpenAPI spec
+generate-models:
+	oapi-codegen -config api/oapi-codegen-models.yaml api/forum.yaml
+
+# Generate Fiber server code from OpenAPI spec
+generate-fiber:
+	oapi-codegen -config api/oapi-codegen-fiber.yaml api/forum.yaml
+
+# Generate all API code (models + fiber server)
+generate: generate-models generate-fiber

@@ -1,0 +1,6 @@
+package: api
+output: internal/api/fiber_server.go
+generate:
+  fiber-server: true
+  embedded-spec: false
+
