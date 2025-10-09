@@ -155,32 +155,88 @@ func (r *PostRepository) add(ctx context.Context, posts []domain.Post, threadId 
 }
 
 func (r *PostRepository) ById(ctx context.Context, id int64, related []string) (*domain.PostFull, error) {
-	userObj := domain.User{}
-	forumObj := domain.Forum{}
-	postObj := domain.Post{}
-	threadObj := domain.Thread{}
 	result := domain.PostFull{}
 
-	err := r.DB.QueryRow(
-		ctx,
-		`	SELECT 
-					u.about, u.email, u.fullname, u.nickname, 
-					f.posts, f.slug, f.threads, f.title, f.user_nn, 
-					p.user_nn, p.created, f.slug, p.id, p.isedited, p.message, p.parent_id, p.thread_id,
-					t.user_nn, t.created, f.slug, t.id, t.message, t.slug, t.title, t.votes
-				FROM posts p
-					JOIN users u ON p.user_nn = u.nickname
-					JOIN threads t ON p.thread_id = t.id
-					JOIN forums f ON t.forum_slug = f.slug
-				WHERE p.id = $1`,
-		id,
-	).Scan(
-		&userObj.About, &userObj.Email, &userObj.FullName, &userObj.Nickname,
-		&forumObj.Posts, &forumObj.Slug, &forumObj.Threads, &forumObj.Title, &forumObj.User,
-		&postObj.Author, &postObj.Created, &postObj.Forum, &postObj.Id, &postObj.IsEdited, &postObj.Message, &postObj.Parent, &postObj.Thread,
-		&threadObj.Author, &threadObj.Created, &threadObj.Forum, &threadObj.Id, &threadObj.Message, &threadObj.Slug, &threadObj.Title, &threadObj.Votes,
-	)
+	needUser := slices.Contains(related, "user")
+	needThread := slices.Contains(related, "thread")
+	needForum := slices.Contains(related, "forum")
 
+	// Build dynamic query based on required relations
+	var queryBuilder strings.Builder
+	queryBuilder.WriteString("SELECT p.user_nn, p.created, p.id, p.isedited, p.message, p.parent_id, p.thread_id")
+
+	if needUser {
+		queryBuilder.WriteString(", u.about, u.email, u.fullname, u.nickname")
+	}
+	if needThread {
+		queryBuilder.WriteString(", t.user_nn, t.created, t.id, t.message, t.slug, t.title, t.votes")
+	}
+	if needForum {
+		queryBuilder.WriteString(", f.posts, f.slug, f.threads, f.title, f.user_nn")
+	}
+
+	queryBuilder.WriteString(" FROM posts p")
+
+	if needUser {
+		queryBuilder.WriteString(" JOIN users u ON p.user_nn = u.nickname")
+	}
+	if needThread || needForum {
+		queryBuilder.WriteString(" JOIN threads t ON p.thread_id = t.id")
+	}
+	if needForum {
+		queryBuilder.WriteString(" JOIN forums f ON t.forum_slug = f.slug")
+	}
+
+	queryBuilder.WriteString(" WHERE p.id = $1")
+
+	// Prepare scan destinations
+	var postObj domain.Post
+	scanDest := []interface{}{
+		&postObj.Author,
+		&postObj.Created,
+		&postObj.Id,
+		&postObj.IsEdited,
+		&postObj.Message,
+		&postObj.Parent,
+		&postObj.Thread,
+	}
+
+	var userObj domain.User
+	if needUser {
+		scanDest = append(scanDest,
+			&userObj.About,
+			&userObj.Email,
+			&userObj.FullName,
+			&userObj.Nickname,
+		)
+	}
+
+	var threadObj domain.Thread
+	if needThread {
+		scanDest = append(scanDest,
+			&threadObj.Author,
+			&threadObj.Created,
+			&threadObj.Id,
+			&threadObj.Message,
+			&threadObj.Slug,
+			&threadObj.Title,
+			&threadObj.Votes,
+		)
+	}
+
+	var forumObj domain.Forum
+	if needForum {
+		scanDest = append(scanDest,
+			&forumObj.Posts,
+			&forumObj.Slug,
+			&forumObj.Threads,
+			&forumObj.Title,
+			&forumObj.User,
+		)
+	}
+
+	// Execute query
+	err := r.DB.QueryRow(ctx, queryBuilder.String(), id).Scan(scanDest...)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return nil, domain.ErrNotFound
@@ -188,17 +244,33 @@ func (r *PostRepository) ById(ctx context.Context, id int64, related []string) (
 		return nil, fmt.Errorf("get post: %w", err)
 	}
 
-	result.Post = &postObj
-	for _, relate := range related {
-		switch relate {
-		case "user":
-			result.Author = &userObj
-		case "thread":
-			result.Thread = &threadObj
-		case "forum":
-			result.Forum = &forumObj
+	// Get forum slug for post - we need thread info for this
+	if postObj.Thread != nil {
+		thread, err := r.Queries.GetThreadByID(ctx, *postObj.Thread)
+		if err == nil {
+			postObj.Forum = &thread.ForumSlug
 		}
 	}
+
+	// Build result
+	result.Post = &postObj
+
+	if needUser {
+		result.Author = &userObj
+	}
+
+	if needThread && threadObj.Id != nil {
+		// Set forum slug for thread if not already set
+		if threadObj.Forum == nil && postObj.Forum != nil {
+			threadObj.Forum = postObj.Forum
+		}
+		result.Thread = &threadObj
+	}
+
+	if needForum {
+		result.Forum = &forumObj
+	}
+
 	return &result, nil
 }
 
