@@ -1,0 +1,995 @@
+openapi: 3.0.1
+info:
+  title: forum
+  description: |
+    Тестовое задание для реализации проекта "Форумы" на курсе по базам данных в
+    Технопарке Mail.ru (https://park.mail.ru).
+  version: 0.1.0
+servers:
+  - url: /api
+paths:
+  /forum/create:
+    post:
+      summary: Создание форума
+      description: |
+        Создание нового форума.
+      operationId: forumCreate
+      requestBody:
+        description: Данные форума.
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/Forum'
+        required: true
+      responses:
+        "201":
+          description: |
+            Форум успешно создан.
+            Возвращает данные созданного форума.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Forum'
+        "404":
+          description: |
+            Владелец форума не найден.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        "409":
+          description: |
+            Форум уже присутсвует в базе данных.
+            Возвращает данные ранее созданного форума.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Forum'
+      x-codegen-request-body-name: forum
+  /forum/{slug}/details:
+    get:
+      summary: Получение информации о форуме
+      description: |
+        Получение информации о форуме по его идентификаторе.
+      operationId: forumGetOne
+      parameters:
+        - name: slug
+          in: path
+          description: Идентификатор форума.
+          required: true
+          schema:
+            type: string
+            format: identity
+      responses:
+        "200":
+          description: |
+            Информация о форуме.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Forum'
+        "404":
+          description: |
+            Форум отсутсвует в системе.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+  /forum/{slug}/create:
+    post:
+      summary: Создание ветки
+      description: |
+        Добавление новой ветки обсуждения на форум.
+      operationId: threadCreate
+      parameters:
+        - name: slug
+          in: path
+          description: Идентификатор форума.
+          required: true
+          schema:
+            type: string
+            format: identity
+      requestBody:
+        description: Данные ветки обсуждения.
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/Thread'
+        required: true
+      responses:
+        "201":
+          description: |
+            Ветка обсуждения успешно создана.
+            Возвращает данные созданной ветки обсуждения.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Thread'
+        "404":
+          description: |
+            Автор ветки или форум не найдены.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        "409":
+          description: |
+            Ветка обсуждения уже присутсвует в базе данных.
+            Возвращает данные ранее созданной ветки обсуждения.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Thread'
+      x-codegen-request-body-name: thread
+  /forum/{slug}/users:
+    get:
+      summary: Пользователи данного форума
+      description: |
+        Получение списка пользователей, у которых есть пост или ветка обсуждения в данном форуме.
+
+        Пользователи выводятся отсортированные по nickname в порядке возрастания.
+        Порядок сотрировки должен соответсвовать побайтовому сравнение в нижнем регистре.
+      operationId: forumGetUsers
+      parameters:
+        - name: slug
+          in: path
+          description: Идентификатор форума.
+          required: true
+          schema:
+            type: string
+            format: identity
+        - name: limit
+          in: query
+          description: Максимальное кол-во возвращаемых записей.
+          schema:
+            maximum: 10000
+            minimum: 1
+            type: number
+            format: int32
+            default: 100.0
+        - name: since
+          in: query
+          description: |
+            Идентификатор пользователя, с которого будут выводиться пользоватли
+            (пользователь с данным идентификатором в результат не попадает).
+          schema:
+            type: string
+            format: identity
+        - name: desc
+          in: query
+          description: |
+            Флаг сортировки по убыванию.
+          schema:
+            type: boolean
+      responses:
+        "200":
+          description: |
+            Информация о пользователях форума.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Users'
+        "404":
+          description: |
+            Форум отсутсвует в системе.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+  /forum/{slug}/threads:
+    get:
+      summary: Список ветвей обсужления форума
+      description: |
+        Получение списка ветвей обсужления данного форума.
+
+        Ветви обсуждения выводятся отсортированные по дате создания.
+      operationId: forumGetThreads
+      parameters:
+        - name: slug
+          in: path
+          description: Идентификатор форума.
+          required: true
+          schema:
+            type: string
+            format: identity
+        - name: limit
+          in: query
+          description: Максимальное кол-во возвращаемых записей.
+          schema:
+            maximum: 10000
+            minimum: 1
+            type: number
+            format: int32
+            default: 100.0
+        - name: since
+          in: query
+          description: |
+            Дата создания ветви обсуждения, с которой будут выводиться записи
+            (ветвь обсуждения с указанной датой попадает в результат выборки).
+          schema:
+            type: string
+            format: date-time
+        - name: desc
+          in: query
+          description: |
+            Флаг сортировки по убыванию.
+          schema:
+            type: boolean
+      responses:
+        "200":
+          description: |
+            Информация о ветках обсуждения на форуме.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Threads'
+        "404":
+          description: |
+            Форум отсутсвует в системе.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+  /post/{id}/details:
+    get:
+      summary: Получение информации о ветке обсуждения
+      description: |
+        Получение информации о ветке обсуждения по его имени.
+      operationId: postGetOne
+      parameters:
+        - name: id
+          in: path
+          description: Идентификатор сообщения.
+          required: true
+          schema:
+            type: number
+            format: int64
+        - name: related
+          in: query
+          description: |
+            Включение полной информации о соответвующем объекте сообщения.
+            
+            Если тип объекта не указан, то полная информация об этих объектах не
+            передаётся.
+          style: form
+          explode: false
+          schema:
+            type: array
+            items:
+              type: string
+              enum:
+                - user
+                - forum
+                - thread
+      responses:
+        "200":
+          description: |
+            Информация о ветке обсуждения.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PostFull'
+        "404":
+          description: |
+            Ветка обсуждения отсутсвует в форуме.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+    post:
+      summary: Изменение сообщения
+      description: |
+        Изменение сообщения на форуме.
+
+        Если сообщение поменяло текст, то оно должно получить отметку `isEdited`.
+      operationId: postUpdate
+      parameters:
+        - name: id
+          in: path
+          description: Идентификатор сообщения.
+          required: true
+          schema:
+            type: number
+            format: int64
+      requestBody:
+        description: Изменения сообщения.
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PostUpdate'
+        required: true
+      responses:
+        "200":
+          description: |
+            Информация о сообщении.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Post'
+        "404":
+          description: |
+            Сообщение отсутсвует в форуме.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+      x-codegen-request-body-name: post
+  /service/clear:
+    post:
+      summary: Очистка всех данных в базе
+      description: |
+        Безвозвратное удаление всей пользовательской информации из базы данных.
+      operationId: clear
+      responses:
+        "200":
+          description: Очистка базы успешно завершена
+          content: {}
+  /service/status:
+    get:
+      summary: Получение инфомарции о базе данных
+      description: |
+        Получение инфомарции о базе данных.
+      operationId: status
+      responses:
+        "200":
+          description: |
+            Кол-во записей в базе данных, включая помеченные как "удалённые".
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Status'
+  /thread/{slug_or_id}/create:
+    post:
+      summary: Создание новых постов
+      description: |
+        Добавление новых постов в ветку обсуждения на форум.
+
+        Все посты, созданные в рамках одного вызова данного метода должны иметь одинаковую дату создания (Post.Created).
+      operationId: postsCreate
+      parameters:
+        - name: slug_or_id
+          in: path
+          description: Идентификатор ветки обсуждения.
+          required: true
+          schema:
+            type: string
+            format: identity
+      requestBody:
+        description: Список создаваемых постов.
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/Posts'
+        required: true
+      responses:
+        "201":
+          description: |
+            Посты успешно созданы.
+            Возвращает данные созданных постов в том же порядке, в котором их передали на вход метода.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Posts'
+        "404":
+          description: |
+            Ветка обсуждения отсутствует в базе данных.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        "409":
+          description: |
+            Хотя бы один родительский пост отсутсвует в текущей ветке обсуждения.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+      x-codegen-request-body-name: posts
+  /thread/{slug_or_id}/details:
+    get:
+      summary: Получение информации о ветке обсуждения
+      description: |
+        Получение информации о ветке обсуждения по его имени.
+      operationId: threadGetOne
+      parameters:
+        - name: slug_or_id
+          in: path
+          description: Идентификатор ветки обсуждения.
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: |
+            Информация о ветке обсуждения.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Thread'
+        "404":
+          description: |
+            Ветка обсуждения отсутсвует в форуме.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+    post:
+      summary: Обновление ветки
+      description: |
+        Обновление ветки обсуждения на форуме.
+      operationId: threadUpdate
+      parameters:
+        - name: slug_or_id
+          in: path
+          description: Идентификатор ветки обсуждения.
+          required: true
+          schema:
+            type: string
+            format: identity
+      requestBody:
+        description: Данные ветки обсуждения.
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ThreadUpdate'
+        required: true
+      responses:
+        "200":
+          description: |
+            Информация о ветке обсуждения.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Thread'
+        "404":
+          description: |
+            Ветка обсуждения отсутсвует в форуме.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+      x-codegen-request-body-name: thread
+  /thread/{slug_or_id}/posts:
+    get:
+      summary: Сообщения данной ветви обсуждения
+      description: |
+        Получение списка сообщений в данной ветке форуме.
+
+        Сообщения выводятся отсортированные по дате создания.
+      operationId: threadGetPosts
+      parameters:
+        - name: slug_or_id
+          in: path
+          description: Идентификатор ветки обсуждения.
+          required: true
+          schema:
+            type: string
+            format: identity
+        - name: limit
+          in: query
+          description: Максимальное кол-во возвращаемых записей.
+          schema:
+            maximum: 10000
+            minimum: 1
+            type: number
+            format: int32
+            default: 100.0
+        - name: since
+          in: query
+          description: |
+            Идентификатор поста, после которого будут выводиться записи
+            (пост с данным идентификатором в результат не попадает).
+          schema:
+            type: number
+            format: int64
+        - name: sort
+          in: query
+          description: |
+            Вид сортировки:
+            
+             * flat - по дате, комментарии выводятся простым списком в порядке создания;
+             * tree - древовидный, комментарии выводятся отсортированные в дереве
+               по N штук;
+             * parent_tree - древовидные с пагинацией по родительским (parent_tree),
+               на странице N родительских комментов и все комментарии прикрепленные
+               к ним, в древвидном отображение.
+            
+            Подробности: https://park.mail.ru/blog/topic/view/1191/
+          schema:
+            type: string
+            default: flat
+            enum:
+              - flat
+              - tree
+              - parent_tree
+        - name: desc
+          in: query
+          description: |
+            Флаг сортировки по убыванию.
+          schema:
+            type: boolean
+      responses:
+        "200":
+          description: |
+            Информация о сообщениях форума.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Posts'
+        "404":
+          description: |
+            Ветка обсуждения отсутсвует в форуме.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+  /thread/{slug_or_id}/vote:
+    post:
+      summary: Проголосовать за ветвь обсуждения
+      description: |
+        Изменение голоса за ветвь обсуждения.
+
+        Один пользователь учитывается только один раз и может изменить своё
+        мнение.
+      operationId: threadVote
+      parameters:
+        - name: slug_or_id
+          in: path
+          description: Идентификатор ветки обсуждения.
+          required: true
+          schema:
+            type: string
+            format: identity
+      requestBody:
+        description: Информация о голосовании пользователя.
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/Vote'
+        required: true
+      responses:
+        "200":
+          description: |
+            Информация о ветке обсуждения.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Thread'
+        "404":
+          description: |
+            Ветка обсуждения отсутсвует в форуме.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+      x-codegen-request-body-name: vote
+  /user/{nickname}/create:
+    post:
+      summary: Создание нового пользователя
+      description: |
+        Создание нового пользователя в базе данных.
+      operationId: userCreate
+      parameters:
+        - name: nickname
+          in: path
+          description: Идентификатор пользователя.
+          required: true
+          schema:
+            type: string
+      requestBody:
+        description: Данные пользовательского профиля.
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/User'
+        required: true
+      responses:
+        "201":
+          description: |
+            Пользователь успешно создан.
+            Возвращает данные созданного пользователя.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/User'
+        "409":
+          description: |
+            Пользователь уже присутсвует в базе данных.
+            Возвращает данные ранее созданных пользователей с тем же nickname-ом иои email-ом.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Users'
+      x-codegen-request-body-name: profile
+  /user/{nickname}/profile:
+    get:
+      summary: Получение информации о пользователе
+      description: |
+        Получение информации о пользователе форума по его имени.
+      operationId: userGetOne
+      parameters:
+        - name: nickname
+          in: path
+          description: Идентификатор пользователя.
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: |
+            Информация о пользователе.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/User'
+        "404":
+          description: |
+            Пользователь отсутсвует в системе.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+    post:
+      summary: Изменение данных о пользователе
+      description: |
+        Изменение информации в профиле пользователя.
+      operationId: userUpdate
+      parameters:
+        - name: nickname
+          in: path
+          description: Идентификатор пользователя.
+          required: true
+          schema:
+            type: string
+      requestBody:
+        description: Изменения профиля пользователя.
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UserUpdate'
+        required: true
+      responses:
+        "200":
+          description: |
+            Актуальная информация о пользователе после изменения профиля.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/User'
+        "404":
+          description: |
+            Пользователь отсутсвует в системе.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        "409":
+          description: |
+            Новые данные профиля пользователя конфликтуют с имеющимися пользователями.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+      x-codegen-request-body-name: profile
+components:
+  schemas:
+    Error:
+      type: object
+      properties:
+        message:
+          type: string
+          description: |
+            Текстовое описание ошибки.
+            В процессе проверки API никаких проверок на содерижимое данного описание не делается.
+          readOnly: true
+          example: |
+            Can't find user with id #42
+    Status:
+      required:
+        - forum
+        - post
+        - thread
+        - user
+      type: object
+      properties:
+        user:
+          type: number
+          description: Кол-во пользователей в базе данных.
+          format: int32
+          example: 1000.0
+          x-isnullable: false
+        forum:
+          type: number
+          description: Кол-во разделов в базе данных.
+          format: int32
+          example: 100.0
+          x-isnullable: false
+        thread:
+          type: number
+          description: Кол-во веток обсуждения в базе данных.
+          format: int32
+          example: 1000.0
+          x-isnullable: false
+        post:
+          type: number
+          description: Кол-во сообщений в базе данных.
+          format: int64
+          example: 1000000.0
+          x-isnullable: false
+    User:
+      required:
+        - email
+        - fullname
+      type: object
+      properties:
+        nickname:
+          type: string
+          description: |
+            Имя пользователя (уникальное поле).
+            Данное поле допускает только латиницу, цифры и знак подчеркивания.
+            Сравнение имени регистронезависимо.
+          format: identity
+          readOnly: true
+          example: j.sparrow
+        fullname:
+          type: string
+          description: Полное имя пользователя.
+          example: Captain Jack Sparrow
+          x-isnullable: false
+        about:
+          type: string
+          description: Описание пользователя.
+          format: text
+          example: This is the day you will always remember as the day that you almost
+            caught Captain Jack Sparrow!
+        email:
+          type: string
+          description: Почтовый адрес пользователя (уникальное поле).
+          format: email
+          example: captaina@blackpearl.sea
+          x-isnullable: false
+      description: |
+        Информация о пользователе.
+    Users:
+      type: array
+      items:
+        $ref: '#/components/schemas/User'
+    UserUpdate:
+      type: object
+      properties:
+        fullname:
+          type: string
+          description: Полное имя пользователя.
+          example: Captain Jack Sparrow
+        about:
+          type: string
+          description: Описание пользователя.
+          format: text
+          example: This is the day you will always remember as the day that you almost
+            caught Captain Jack Sparrow!
+        email:
+          type: string
+          description: Почтовый адрес пользователя (уникальное поле).
+          format: email
+          example: captaina@blackpearl.sea
+      description: |
+        Информация о пользователе.
+    Forum:
+      required:
+        - slug
+        - title
+        - user
+      type: object
+      properties:
+        title:
+          type: string
+          description: Название форума.
+          example: Pirate stories
+          x-isnullable: false
+        user:
+          type: string
+          description: "Nickname пользователя, который отвечает за форум."
+          format: identity
+          example: j.sparrow
+          x-isnullable: false
+        slug:
+          pattern: ^(\d|\w|-|_)*(\w|-|_)(\d|\w|-|_)*$
+          type: string
+          description: "Человекопонятный URL (https://ru.wikipedia.org/wiki/%D0%A1%D0%B5%D0%BC%D0%B0%D0%BD%D1%82%D0%B8%D1%87%D0%B5%D1%81%D0%BA%D0%B8%D0%B9_URL),\
+            \ уникальное поле."
+          format: identity
+          example: pirate-stories
+          x-isnullable: false
+        posts:
+          type: number
+          description: |
+            Общее кол-во сообщений в данном форуме.
+          format: int64
+          readOnly: true
+          example: 200000.0
+        threads:
+          type: number
+          description: |
+            Общее кол-во ветвей обсуждения в данном форуме.
+          format: int32
+          readOnly: true
+          example: 200.0
+      description: |
+        Информация о форуме.
+    Thread:
+      required:
+        - author
+        - message
+        - title
+      type: object
+      properties:
+        id:
+          type: number
+          description: Идентификатор ветки обсуждения.
+          format: int32
+          readOnly: true
+          example: 42.0
+        title:
+          type: string
+          description: Заголовок ветки обсуждения.
+          example: Davy Jones cache
+          x-isnullable: false
+        author:
+          type: string
+          description: "Пользователь, создавший данную тему."
+          format: identity
+          example: j.sparrow
+          x-isnullable: false
+        forum:
+          type: string
+          description: "Форум, в котором расположена данная ветка обсуждения."
+          format: identity
+          readOnly: true
+          example: pirate-stories
+        message:
+          type: string
+          description: Описание ветки обсуждения.
+          format: text
+          example: An urgent need to reveal the hiding place of Davy Jones. Who is
+            willing to help in this matter?
+          x-isnullable: false
+        votes:
+          type: number
+          description: Кол-во голосов непосредственно за данное сообщение форума.
+          format: int32
+          readOnly: true
+        slug:
+          pattern: ^(\d|\w|-|_)*(\w|-|_)(\d|\w|-|_)*$
+          type: string
+          description: |
+            Человекопонятный URL (https://ru.wikipedia.org/wiki/%D0%A1%D0%B5%D0%BC%D0%B0%D0%BD%D1%82%D0%B8%D1%87%D0%B5%D1%81%D0%BA%D0%B8%D0%B9_URL).
+            В данной структуре slug опционален и не может быть числом.
+          format: identity
+          readOnly: true
+          example: jones-cache
+        created:
+          type: string
+          description: Дата создания ветки на форуме.
+          format: date-time
+          example: 2017-01-01T00:00:00Z
+          x-isnullable: true
+      description: |
+        Ветка обсуждения на форуме.
+    Threads:
+      type: array
+      items:
+        $ref: '#/components/schemas/Thread'
+    ThreadUpdate:
+      type: object
+      properties:
+        title:
+          type: string
+          description: Заголовок ветки обсуждения.
+          example: Davy Jones cache
+        message:
+          type: string
+          description: Описание ветки обсуждения.
+          format: text
+          example: An urgent need to reveal the hiding place of Davy Jones. Who is
+            willing to help in this matter?
+      description: |
+        Сообщение для обновления ветки обсуждения на форуме.
+        Пустые параметры остаются без изменений.
+    Post:
+      required:
+        - author
+        - message
+      type: object
+      properties:
+        id:
+          type: number
+          description: Идентификатор данного сообщения.
+          format: int64
+          readOnly: true
+        parent:
+          type: number
+          description: |
+            Идентификатор родительского сообщения (0 - корневое сообщение обсуждения).
+          format: int64
+        author:
+          type: string
+          description: "Автор, написавший данное сообщение."
+          format: identity
+          example: j.sparrow
+          x-isnullable: false
+        message:
+          type: string
+          description: Собственно сообщение форума.
+          format: text
+          example: We should be afraid of the Kraken.
+          x-isnullable: false
+        isEdited:
+          type: boolean
+          description: "Истина, если данное сообщение было изменено."
+          readOnly: true
+          x-isnullable: false
+        forum:
+          type: string
+          description: Идентификатор форума (slug) данного сообещния.
+          format: identity
+          readOnly: true
+        thread:
+          type: number
+          description: Идентификатор ветви (id) обсуждения данного сообещния.
+          format: int32
+          readOnly: true
+        created:
+          type: string
+          description: Дата создания сообщения на форуме.
+          format: date-time
+          readOnly: true
+          x-isnullable: true
+      description: |
+        Сообщение внутри ветки обсуждения на форуме.
+    Posts:
+      type: array
+      items:
+        $ref: '#/components/schemas/Post'
+    PostUpdate:
+      type: object
+      properties:
+        message:
+          type: string
+          description: Собственно сообщение форума.
+          format: text
+          example: We should be afraid of the Kraken.
+      description: |
+        Сообщение для обновления сообщения внутри ветки на форуме.
+        Пустые параметры остаются без изменений.
+    PostFull:
+      type: object
+      properties:
+        post:
+          $ref: '#/components/schemas/Post'
+        author:
+          $ref: '#/components/schemas/User'
+        thread:
+          $ref: '#/components/schemas/Thread'
+        forum:
+          $ref: '#/components/schemas/Forum'
+      description: |
+        Полная информация о сообщении, включая связанные объекты.
+    Vote:
+      required:
+        - nickname
+        - voice
+      type: object
+      properties:
+        nickname:
+          type: string
+          description: Идентификатор пользователя.
+          format: identity
+          x-isnullable: false
+        voice:
+          type: number
+          description: Отданный голос.
+          format: int32
+          x-isnullable: false
+      description: |
+        Информация о голосовании пользователя.
+x-original-swagger-version: "2.0"
