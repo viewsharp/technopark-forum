@@ -7,8 +7,6 @@ type User struct {
 	About    *string
 }
 
-type Users []*User
-
 type UserUpdate struct {
 	About    *string
 	Email    *string

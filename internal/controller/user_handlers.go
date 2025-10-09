@@ -2,7 +2,6 @@ package controller
 
 import (
 	"github.com/gofiber/fiber/v2"
-	oapitypes "github.com/oapi-codegen/runtime/types"
 
 	"github.com/viewsharp/technopark-forum/internal/api"
 	"github.com/viewsharp/technopark-forum/internal/domain"
@@ -36,30 +35,15 @@ func (s *Server) UserCreate(c *fiber.Ctx, nickname string) error {
 
 		userByEmail, err := s.sb.User.ByEmail(c.Context(), string(user.Email))
 		if err == nil {
-			result = append(result, api.User{
-				About:    userByEmail.About,
-				Email:    oapitypes.Email(userByEmail.Email),
-				Fullname: userByEmail.FullName,
-				Nickname: &userByEmail.Nickname,
-			})
+			result = append(result, domainUserToAPI(userByEmail))
 		}
 
 		userByNickname, err := s.sb.User.ByNickname(c.Context(), nickname)
 		if err == nil {
 			if userByEmail == nil {
-				result = append(result, api.User{
-					About:    userByNickname.About,
-					Email:    oapitypes.Email(userByNickname.Email),
-					Fullname: userByNickname.FullName,
-					Nickname: &userByNickname.Nickname,
-				})
+				result = append(result, domainUserToAPI(userByNickname))
 			} else if userByNickname.Nickname != userByEmail.Nickname {
-				result = append(result, api.User{
-					About:    userByNickname.About,
-					Email:    oapitypes.Email(userByNickname.Email),
-					Fullname: userByNickname.FullName,
-					Nickname: &userByNickname.Nickname,
-				})
+				result = append(result, domainUserToAPI(userByNickname))
 			}
 		}
 
@@ -75,12 +59,7 @@ func (s *Server) UserGetOne(c *fiber.Ctx, nickname string) error {
 
 	switch err {
 	case nil:
-		return c.JSON(api.User{
-			About:    result.About,
-			Email:    oapitypes.Email(result.Email),
-			Fullname: result.FullName,
-			Nickname: &result.Nickname,
-		})
+		return c.JSON(domainUserToAPI(result))
 	case domain.ErrNotFound:
 		return c.Status(fiber.StatusNotFound).JSON(api.Error{
 			Message: ptrString("Can't find user by nickname: " + nickname),
@@ -112,12 +91,7 @@ func (s *Server) UserUpdate(c *fiber.Ctx, nickname string) error {
 
 	switch err {
 	case nil:
-		return c.JSON(api.User{
-			About:    user.About,
-			Email:    oapitypes.Email(user.Email),
-			Fullname: user.FullName,
-			Nickname: &user.Nickname,
-		})
+		return c.JSON(domainUserToAPI(user))
 	case domain.ErrUniqueViolation:
 		return c.Status(fiber.StatusConflict).JSON(api.Error{
 			Message: ptrString("This email is already registered by user: " + string(*update.Email)),
@@ -151,16 +125,7 @@ func (s *Server) ForumGetUsers(c *fiber.Ctx, slug string, params api.ForumGetUse
 
 	switch err {
 	case nil:
-		users := make([]api.User, len(*result))
-		for i, u := range *result {
-			users[i] = api.User{
-				About:    u.About,
-				Email:    oapitypes.Email(u.Email),
-				Fullname: u.FullName,
-				Nickname: &u.Nickname,
-			}
-		}
-		return c.JSON(users)
+		return c.JSON(domainUsersToAPI(result))
 	case domain.ErrUserNotFoundForum:
 		return c.Status(fiber.StatusNotFound).JSON(api.Error{
 			Message: ptrString("Can't find forum by slug: " + slug),

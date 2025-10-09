@@ -27,13 +27,7 @@ func (s *Server) ForumCreate(c *fiber.Ctx) error {
 		case domain.ErrUniqueViolation:
 			result, err := s.sb.Forum.BySlug(c.Context(), forum.Slug)
 			if err == nil {
-				return c.Status(fiber.StatusConflict).JSON(api.Forum{
-					Slug:    result.Slug,
-					Title:   result.Title,
-					User:    result.User,
-					Posts:   result.Posts,
-					Threads: result.Threads,
-				})
+				return c.Status(fiber.StatusConflict).JSON(domainForumToAPI(result))
 			}
 		case domain.ErrForumNotFoundUser:
 			return c.Status(fiber.StatusNotFound).JSON(api.Error{
@@ -43,13 +37,7 @@ func (s *Server) ForumCreate(c *fiber.Ctx) error {
 		return c.Status(fiber.StatusInternalServerError).JSON(api.Error{Message: ptrString(err.Error())})
 	}
 
-	return c.Status(fiber.StatusCreated).JSON(api.Forum{
-		Slug:    createdForum.Slug,
-		Title:   createdForum.Title,
-		User:    createdForum.User,
-		Posts:   createdForum.Posts,
-		Threads: createdForum.Threads,
-	})
+	return c.Status(fiber.StatusCreated).JSON(domainForumToAPI(createdForum))
 }
 
 // ForumGetOne implements api.ServerInterface
@@ -58,13 +46,7 @@ func (s *Server) ForumGetOne(c *fiber.Ctx, slug string) error {
 
 	switch err {
 	case nil:
-		return c.JSON(api.Forum{
-			Slug:    result.Slug,
-			Title:   result.Title,
-			User:    result.User,
-			Posts:   result.Posts,
-			Threads: result.Threads,
-		})
+		return c.JSON(domainForumToAPI(result))
 	case domain.ErrNotFound:
 		return c.Status(fiber.StatusNotFound).JSON(api.Error{
 			Message: ptrString("Can't find forum by slug: " + slug),

@@ -6,7 +6,6 @@ import (
 	"strconv"
 
 	"github.com/gofiber/fiber/v2"
-	oapitypes "github.com/oapi-codegen/runtime/types"
 
 	"github.com/viewsharp/technopark-forum/internal/api"
 	"github.com/viewsharp/technopark-forum/internal/domain"
@@ -97,21 +96,7 @@ func (s *Server) PostsCreate(c *fiber.Ctx, slugOrId string) error {
 		return c.Status(fiber.StatusInternalServerError).JSON(api.Error{Message: ptrString(err.Error())})
 	}
 
-	// Convert back to api.Post
-	for i, p := range ucPosts {
-		posts[i] = api.Post{
-			Message:  p.Message,
-			Author:   p.Author,
-			Created:  p.Created,
-			Forum:    p.Forum,
-			Id:       p.Id,
-			IsEdited: p.IsEdited,
-			Parent:   p.Parent,
-			Thread:   p.Thread,
-		}
-	}
-
-	return c.Status(fiber.StatusCreated).JSON(posts)
+	return c.Status(fiber.StatusCreated).JSON(domainPostsToAPI(ucPosts))
 }
 
 // PostGetOne implements api.ServerInterface
@@ -127,49 +112,7 @@ func (s *Server) PostGetOne(c *fiber.Ctx, id int64, params api.PostGetOneParams)
 
 	switch err {
 	case nil:
-		response := api.PostFull{}
-		if result.Post != nil {
-			response.Post = &api.Post{
-				Message:  result.Post.Message,
-				Author:   result.Post.Author,
-				Created:  result.Post.Created,
-				Forum:    result.Post.Forum,
-				Id:       result.Post.Id,
-				IsEdited: result.Post.IsEdited,
-				Parent:   result.Post.Parent,
-				Thread:   result.Post.Thread,
-			}
-		}
-		if result.Author != nil {
-			response.Author = &api.User{
-				About:    result.Author.About,
-				Email:    oapitypes.Email(result.Author.Email),
-				Fullname: result.Author.FullName,
-				Nickname: &result.Author.Nickname,
-			}
-		}
-		if result.Forum != nil {
-			response.Forum = &api.Forum{
-				Slug:    result.Forum.Slug,
-				Title:   result.Forum.Title,
-				User:    result.Forum.User,
-				Posts:   result.Forum.Posts,
-				Threads: result.Forum.Threads,
-			}
-		}
-		if result.Thread != nil {
-			response.Thread = &api.Thread{
-				Author:  result.Thread.Author,
-				Created: result.Thread.Created,
-				Forum:   result.Thread.Forum,
-				Id:      result.Thread.Id,
-				Message: result.Thread.Message,
-				Slug:    result.Thread.Slug,
-				Title:   result.Thread.Title,
-				Votes:   result.Thread.Votes,
-			}
-		}
-		return c.JSON(response)
+		return c.JSON(domainPostFullToAPI(result))
 	case domain.ErrNotFound:
 		return c.Status(fiber.StatusNotFound).JSON(api.Error{
 			Message: ptrString("Can't find user by nickname: "),
@@ -228,20 +171,7 @@ func (s *Server) ThreadGetPosts(c *fiber.Ctx, slugOrId string, params api.Thread
 
 	switch err {
 	case nil:
-		posts := make([]api.Post, len(ucPosts))
-		for i, p := range ucPosts {
-			posts[i] = api.Post{
-				Message:  p.Message,
-				Author:   p.Author,
-				Created:  p.Created,
-				Forum:    p.Forum,
-				Id:       p.Id,
-				IsEdited: p.IsEdited,
-				Parent:   p.Parent,
-				Thread:   p.Thread,
-			}
-		}
-		return c.JSON(posts)
+		return c.JSON(domainPostsToAPI(ucPosts))
 	case domain.ErrPostNotFoundThread:
 		if threadIdParseErr == nil {
 			return c.Status(fiber.StatusNotFound).JSON(api.Error{
@@ -281,16 +211,7 @@ func (s *Server) PostUpdate(c *fiber.Ctx, id int64) error {
 		}
 
 		if updateErr == nil {
-			return c.JSON(api.Post{
-				Message:  result.Post.Message,
-				Author:   result.Post.Author,
-				Created:  result.Post.Created,
-				Forum:    result.Post.Forum,
-				Id:       result.Post.Id,
-				IsEdited: result.Post.IsEdited,
-				Parent:   result.Post.Parent,
-				Thread:   result.Post.Thread,
-			})
+			return c.JSON(domainPostToAPI(result.Post))
 		}
 	case domain.ErrNotFound:
 		return c.Status(fiber.StatusNotFound).JSON(api.Error{

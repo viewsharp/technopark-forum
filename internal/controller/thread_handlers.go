@@ -30,29 +30,11 @@ func (s *Server) ThreadCreate(c *fiber.Ctx, slug string) error {
 	err := s.sb.Thread.Add(c.Context(), &ucThread)
 	switch err {
 	case nil:
-		return c.Status(fiber.StatusCreated).JSON(api.Thread{
-			Title:   ucThread.Title,
-			Message: ucThread.Message,
-			Author:  ucThread.Author,
-			Created: ucThread.Created,
-			Forum:   ucThread.Forum,
-			Id:      ucThread.Id,
-			Slug:    ucThread.Slug,
-			Votes:   ucThread.Votes,
-		})
+		return c.Status(fiber.StatusCreated).JSON(domainThreadToAPI(&ucThread))
 	case domain.ErrUniqueViolation:
 		result, err := s.sb.Thread.BySlug(c.Context(), *thread.Slug)
 		if err == nil {
-			return c.Status(fiber.StatusConflict).JSON(api.Thread{
-				Title:   result.Title,
-				Message: result.Message,
-				Author:  result.Author,
-				Created: result.Created,
-				Forum:   result.Forum,
-				Id:      result.Id,
-				Slug:    result.Slug,
-				Votes:   result.Votes,
-			})
+			return c.Status(fiber.StatusConflict).JSON(domainThreadToAPI(result))
 		}
 	case domain.ErrThreadNotFoundUser:
 		return c.Status(fiber.StatusNotFound).JSON(api.Error{
@@ -88,20 +70,7 @@ func (s *Server) ForumGetThreads(c *fiber.Ctx, slug string, params api.ForumGetT
 
 	switch err {
 	case nil:
-		threads := make([]api.Thread, len(*result))
-		for i, t := range *result {
-			threads[i] = api.Thread{
-				Title:   t.Title,
-				Message: t.Message,
-				Author:  t.Author,
-				Created: t.Created,
-				Forum:   t.Forum,
-				Id:      t.Id,
-				Slug:    t.Slug,
-				Votes:   t.Votes,
-			}
-		}
-		return c.JSON(threads)
+		return c.JSON(domainThreadsToAPI(result))
 	case domain.ErrThreadNotFoundForum:
 		return c.Status(fiber.StatusNotFound).JSON(api.Error{
 			Message: ptrString("Can't find forum by slug: " + slug),
@@ -125,16 +94,7 @@ func (s *Server) ThreadGetOne(c *fiber.Ctx, slugOrId string) error {
 
 	switch err {
 	case nil:
-		return c.JSON(api.Thread{
-			Title:   result.Title,
-			Message: result.Message,
-			Author:  result.Author,
-			Created: result.Created,
-			Forum:   result.Forum,
-			Id:      result.Id,
-			Slug:    result.Slug,
-			Votes:   result.Votes,
-		})
+		return c.JSON(domainThreadToAPI(result))
 	case domain.ErrNotFound:
 		if threadIdParseErr == nil {
 			return c.Status(fiber.StatusNotFound).JSON(api.Error{
@@ -185,16 +145,7 @@ func (s *Server) ThreadUpdate(c *fiber.Ctx, slugOrId string) error {
 
 	switch err {
 	case nil:
-		return c.JSON(api.Thread{
-			Title:   result.Title,
-			Message: result.Message,
-			Author:  result.Author,
-			Created: result.Created,
-			Forum:   result.Forum,
-			Id:      result.Id,
-			Slug:    result.Slug,
-			Votes:   result.Votes,
-		})
+		return c.JSON(domainThreadToAPI(result))
 	case domain.ErrNotFound:
 		if threadIdErr == nil {
 			return c.Status(fiber.StatusNotFound).JSON(api.Error{

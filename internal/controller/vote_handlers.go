@@ -60,16 +60,7 @@ func (s *Server) ThreadVote(c *fiber.Ctx, slugOrId string) error {
 
 	switch err {
 	case nil:
-		return c.JSON(api.Thread{
-			Author:  result.Author,
-			Created: result.Created,
-			Forum:   result.Forum,
-			Id:      result.Id,
-			Message: result.Message,
-			Slug:    result.Slug,
-			Title:   result.Title,
-			Votes:   result.Votes,
-		})
+		return c.JSON(domainThreadToAPI(result))
 	}
 
 	return c.Status(fiber.StatusInternalServerError).JSON(api.Error{Message: ptrString(err.Error())})

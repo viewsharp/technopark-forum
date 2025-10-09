@@ -123,7 +123,7 @@ func (r *UserRepository) UpdateByNickname(ctx context.Context, nickname string, 
 	}, nil
 }
 
-func (r *UserRepository) ByForumSlug(ctx context.Context, slug string, desc bool, since string, limit int32) (*domain.Users, error) {
+func (r *UserRepository) ByForumSlug(ctx context.Context, slug string, desc bool, since string, limit int32) ([]domain.User, error) {
 	var queryBuilder strings.Builder
 	queryBuilder.WriteString(
 		"SELECT u.nickname, u.fullname, u.email, u.about " +
@@ -159,7 +159,7 @@ func (r *UserRepository) ByForumSlug(ctx context.Context, slug string, desc bool
 	}
 	defer rows.Close()
 
-	result := make(domain.Users, 0, 1)
+	result := make([]domain.User, 0, 1)
 	for rows.Next() {
 		var user domain.User
 		err = rows.Scan(&user.Nickname, &user.FullName, &user.Email, &user.About)
@@ -167,7 +167,7 @@ func (r *UserRepository) ByForumSlug(ctx context.Context, slug string, desc bool
 			return nil, fmt.Errorf("scan users %w", err)
 		}
 
-		result = append(result, &user)
+		result = append(result, user)
 	}
 
 	if err = rows.Err(); err != nil {
@@ -182,5 +182,5 @@ func (r *UserRepository) ByForumSlug(ctx context.Context, slug string, desc bool
 		}
 	}
 
-	return &result, nil
+	return result, nil
 }

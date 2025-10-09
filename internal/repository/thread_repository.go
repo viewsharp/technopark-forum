@@ -116,7 +116,7 @@ func (r *ThreadRepository) ById(ctx context.Context, id int) (*domain.Thread, er
 	}, nil
 }
 
-func (r *ThreadRepository) ByForumSlug(ctx context.Context, slug string, desc bool, since string, limit int32) (*domain.Threads, error) {
+func (r *ThreadRepository) ByForumSlug(ctx context.Context, slug string, desc bool, since string, limit int32) ([]domain.Thread, error) {
 	var queryBuilder strings.Builder
 	queryBuilder.WriteString(`	SELECT id, slug, created, title, message, user_nn, forum_slug, votes
             						FROM threads t
@@ -149,7 +149,7 @@ func (r *ThreadRepository) ByForumSlug(ctx context.Context, slug string, desc bo
 	}
 	defer rows.Close()
 
-	result := make(domain.Threads, 0, limit)
+	result := make([]domain.Thread, 0, limit)
 	for rows.Next() {
 		var thread domain.Thread
 		err = rows.Scan(
@@ -166,7 +166,7 @@ func (r *ThreadRepository) ByForumSlug(ctx context.Context, slug string, desc bo
 			return nil, fmt.Errorf("scan thread: %w", err)
 		}
 
-		result = append(result, &thread)
+		result = append(result, thread)
 	}
 	if err = rows.Err(); err != nil {
 		return nil, fmt.Errorf("scan threads: %w", err)
@@ -180,7 +180,7 @@ func (r *ThreadRepository) ByForumSlug(ctx context.Context, slug string, desc bo
 		}
 	}
 
-	return &result, nil
+	return result, nil
 }
 
 func (r *ThreadRepository) UpdateById(ctx context.Context, id int, thread *domain.ThreadUpdate) error {
