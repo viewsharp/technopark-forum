@@ -8,6 +8,7 @@ require (
 	github.com/bytedance/sonic v1.12.3
 	github.com/gofiber/fiber/v2 v2.52.9
 	github.com/jackc/pgx/v5 v5.5.5
+	github.com/joho/godotenv v1.5.1
 	github.com/oapi-codegen/runtime v1.1.2
 	go.uber.org/zap v1.23.0
 )

@@ -8,6 +8,9 @@ import (
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
+	"github.com/jackc/pgx/v5/pgtype"
+
+	"github.com/viewsharp/technopark-forum/internal/db"
 )
 
 type DB interface {
@@ -17,15 +20,22 @@ type DB interface {
 }
 
 type Usecase struct {
-	DB DB
+	DB      DB
+	Queries *db.Queries
 }
 
 func (s *Usecase) Add(ctx context.Context, user *User) error {
-	_, err := s.DB.Exec(
-		ctx,
-		"INSERT INTO users (nickname, fullname, email, about)	VALUES ($1, $2, $3, $4)",
-		user.Nickname, user.FullName, user.Email, user.About,
-	)
+	var about pgtype.Text
+	if user.About != nil {
+		about = pgtype.Text{String: *user.About, Valid: true}
+	}
+
+	err := s.Queries.CreateUser(ctx, db.CreateUserParams{
+		Nickname: user.Nickname,
+		Fullname: user.FullName,
+		Email:    user.Email,
+		About:    about,
+	})
 	if err != nil {
 		var pgErr *pgconn.PgError
 		if errors.As(err, &pgErr) && pgErr.Code == "23505" {
@@ -38,13 +48,7 @@ func (s *Usecase) Add(ctx context.Context, user *User) error {
 }
 
 func (s *Usecase) ByNickname(ctx context.Context, nickname string) (*User, error) {
-	var result User
-
-	err := s.DB.QueryRow(
-		ctx,
-		"SELECT nickname, fullname, email, about FROM users WHERE nickname = $1",
-		nickname,
-	).Scan(&result.Nickname, &result.FullName, &result.Email, &result.About)
+	dbUser, err := s.Queries.GetUserByNickname(ctx, nickname)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return nil, ErrNotFound
@@ -52,41 +56,76 @@ func (s *Usecase) ByNickname(ctx context.Context, nickname string) (*User, error
 		return nil, fmt.Errorf("select user: %w", err)
 	}
 
-	return &result, nil
+	var about *string
+	if dbUser.About.Valid {
+		about = &dbUser.About.String
+	}
+
+	return &User{
+		Nickname: dbUser.Nickname,
+		FullName: dbUser.Fullname,
+		Email:    dbUser.Email,
+		About:    about,
+	}, nil
 }
 
 func (s *Usecase) ByEmail(ctx context.Context, email string) (*User, error) {
-	var result User
-
-	err := s.DB.QueryRow(ctx, "SELECT nickname, fullname, email, about FROM users WHERE email = $1", email).Scan(&result.Nickname, &result.FullName, &result.Email, &result.About)
+	dbUser, err := s.Queries.GetUserByEmail(ctx, email)
 	if err != nil {
 		return nil, fmt.Errorf("select user: %w", err)
 	}
 
-	return &result, nil
+	var about *string
+	if dbUser.About.Valid {
+		about = &dbUser.About.String
+	}
+
+	return &User{
+		Nickname: dbUser.Nickname,
+		FullName: dbUser.Fullname,
+		Email:    dbUser.Email,
+		About:    about,
+	}, nil
 }
 
-func (s *Usecase) UpdateByNickname(ctx context.Context, nickname string, user *UserUpdate) error {
-	err := s.DB.QueryRow(
-		ctx,
-		"UPDATE users "+
-			"SET fullname = COALESCE($1, fullname), email = COALESCE($2, email), about = COALESCE($3, about) "+
-			"WHERE nickname = $4 "+
-			"RETURNING fullname, email, about",
-		user.FullName, user.Email, user.About, nickname,
-	).Scan(&user.FullName, &user.Email, &user.About)
+func (s *Usecase) UpdateByNickname(ctx context.Context, nickname string, user *UserUpdate) (*User, error) {
+	params := db.UpdateUserByNicknameParams{
+		Nickname: nickname,
+	}
+
+	if user.FullName != nil {
+		params.Fullname = pgtype.Text{String: *user.FullName, Valid: true}
+	}
+	if user.Email != nil {
+		params.Email = pgtype.Text{String: *user.Email, Valid: true}
+	}
+	if user.About != nil {
+		params.About = pgtype.Text{String: *user.About, Valid: true}
+	}
+
+	dbUser, err := s.Queries.UpdateUserByNickname(ctx, params)
 	if err != nil {
 		var pgErr *pgconn.PgError
 		if errors.As(err, &pgErr) && pgErr.Code == "23505" {
-			return ErrUniqueViolation
+			return nil, ErrUniqueViolation
 		}
 		if errors.Is(err, pgx.ErrNoRows) {
-			return ErrNotFound
+			return nil, ErrNotFound
 		}
-		return fmt.Errorf("update user: %w", err)
+		return nil, fmt.Errorf("update user: %w", err)
 	}
 
-	return nil
+	var about *string
+	if dbUser.About.Valid {
+		about = &dbUser.About.String
+	}
+
+	return &User{
+		Nickname: dbUser.Nickname,
+		FullName: dbUser.Fullname,
+		Email:    dbUser.Email,
+		About:    about,
+	}, nil
 }
 
 func (s *Usecase) ByForumSlug(ctx context.Context, slug string, desc bool, since string, limit int32) (*Users, error) {
@@ -143,7 +182,7 @@ func (s *Usecase) ByForumSlug(ctx context.Context, slug string, desc bool, since
 
 	if len(result) == 0 {
 		var forumSlug *string
-		err = s.DB.QueryRow(ctx, "SELECT slug FROM forums WHERE slug = $1", slug).Scan(&forumSlug)
+		_ = s.DB.QueryRow(ctx, "SELECT slug FROM forums WHERE slug = $1", slug).Scan(&forumSlug)
 		if forumSlug == nil {
 			return nil, ErrNotFoundForum
 		}

@@ -4,7 +4,10 @@ import (
 	"context"
 	"fmt"
 	"log"
+	"log/slog"
 	"os"
+
+	"github.com/joho/godotenv"
 
 	json "github.com/bytedance/sonic"
 	"github.com/gofiber/fiber/v2"
@@ -16,11 +19,15 @@ import (
 	"github.com/viewsharp/technopark-forum/internal/db"
 )
 
-var ServerAddr = os.Getenv("SERVER_ADDR")
-var PostgresDSN = os.Getenv("POSTGRES_DSN")
-
 func main() {
-	dbpool, err := pgxpool.New(context.Background(), PostgresDSN)
+	err := godotenv.Load()
+	if err != nil {
+		log.Fatal("Error loading .env file")
+	}
+	serverAddr := os.Getenv("SERVER_ADDR")
+	postgresDSN := os.Getenv("POSTGRES_DSN")
+
+	dbpool, err := pgxpool.New(context.Background(), postgresDSN)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Unable to create connection pool: %v\n", err)
 		os.Exit(1)
@@ -40,11 +47,15 @@ func main() {
 	app.Use(logger.New(logger.Config{
 		Format: "${time} ${status} - ${latency} ${method} ${path}\n",
 	}))
+	app.Use(func(c *fiber.Ctx) error {
+		slog.Info("resp", "body", c.Response().Body())
+		return c.Next()
+	})
 
 	// Register API routes with /api prefix
 	apiGroup := app.Group("/api")
 	api.RegisterHandlers(apiGroup, server)
 
-	log.Printf("starting server at: %s\n", ServerAddr)
-	log.Fatal(app.Listen(ServerAddr))
+	log.Printf("starting server at: %s\n", serverAddr)
+	log.Fatal(app.Listen(serverAddr))
 }

@@ -307,9 +307,9 @@ func (s *Server) UserCreate(c *fiber.Ctx, nickname string) error {
 
 	ucUser := user2.User{
 		About:    user.About,
-		Email:    ptrString(string(user.Email)),
-		FullName: &user.Fullname,
-		Nickname: &nickname,
+		Email:    string(user.Email),
+		FullName: user.Fullname,
+		Nickname: nickname,
 	}
 
 	err := s.sb.user.Add(c.Context(), &ucUser)
@@ -328,9 +328,9 @@ func (s *Server) UserCreate(c *fiber.Ctx, nickname string) error {
 		if err == nil {
 			result = append(result, api.User{
 				About:    userByEmail.About,
-				Email:    oapitypes.Email(*userByEmail.Email),
-				Fullname: *userByEmail.FullName,
-				Nickname: userByEmail.Nickname,
+				Email:    oapitypes.Email(userByEmail.Email),
+				Fullname: userByEmail.FullName,
+				Nickname: &userByEmail.Nickname,
 			})
 		}
 
@@ -339,16 +339,16 @@ func (s *Server) UserCreate(c *fiber.Ctx, nickname string) error {
 			if userByEmail == nil {
 				result = append(result, api.User{
 					About:    userByNickname.About,
-					Email:    oapitypes.Email(*userByNickname.Email),
-					Fullname: *userByNickname.FullName,
-					Nickname: userByNickname.Nickname,
+					Email:    oapitypes.Email(userByNickname.Email),
+					Fullname: userByNickname.FullName,
+					Nickname: &userByNickname.Nickname,
 				})
-			} else if *userByNickname.Nickname != *userByEmail.Nickname {
+			} else if userByNickname.Nickname != userByEmail.Nickname {
 				result = append(result, api.User{
 					About:    userByNickname.About,
-					Email:    oapitypes.Email(*userByNickname.Email),
-					Fullname: *userByNickname.FullName,
-					Nickname: userByNickname.Nickname,
+					Email:    oapitypes.Email(userByNickname.Email),
+					Fullname: userByNickname.FullName,
+					Nickname: &userByNickname.Nickname,
 				})
 			}
 		}
@@ -367,9 +367,9 @@ func (s *Server) UserGetOne(c *fiber.Ctx, nickname string) error {
 	case nil:
 		return c.JSON(api.User{
 			About:    result.About,
-			Email:    oapitypes.Email(*result.Email),
-			Fullname: *result.FullName,
-			Nickname: result.Nickname,
+			Email:    oapitypes.Email(result.Email),
+			Fullname: result.FullName,
+			Nickname: &result.Nickname,
 		})
 	case user2.ErrNotFound:
 		return c.Status(fiber.StatusNotFound).JSON(api.Error{
@@ -398,15 +398,15 @@ func (s *Server) UserUpdate(c *fiber.Ctx, nickname string) error {
 		FullName: update.Fullname,
 	}
 
-	err := s.sb.user.UpdateByNickname(c.Context(), nickname, &ucUpdate)
+	user, err := s.sb.user.UpdateByNickname(c.Context(), nickname, &ucUpdate)
 
 	switch err {
 	case nil:
 		return c.JSON(api.User{
-			About:    update.About,
-			Email:    *update.Email,
-			Fullname: *update.Fullname,
-			Nickname: ptrString(nickname),
+			About:    user.About,
+			Email:    oapitypes.Email(user.Email),
+			Fullname: user.FullName,
+			Nickname: &user.Nickname,
 		})
 	case user2.ErrUniqueViolation:
 		return c.Status(fiber.StatusConflict).JSON(api.Error{
@@ -445,9 +445,9 @@ func (s *Server) ForumGetUsers(c *fiber.Ctx, slug string, params api.ForumGetUse
 		for i, u := range *result {
 			users[i] = api.User{
 				About:    u.About,
-				Email:    oapitypes.Email(*u.Email),
-				Fullname: *u.FullName,
-				Nickname: u.Nickname,
+				Email:    oapitypes.Email(u.Email),
+				Fullname: u.FullName,
+				Nickname: &u.Nickname,
 			}
 		}
 		return c.JSON(users)
@@ -593,9 +593,9 @@ func (s *Server) PostGetOne(c *fiber.Ctx, id int64, params api.PostGetOneParams)
 		if result.Author != nil {
 			response.Author = &api.User{
 				About:    result.Author.About,
-				Email:    oapitypes.Email(*result.Author.Email),
-				Fullname: *result.Author.FullName,
-				Nickname: result.Author.Nickname,
+				Email:    oapitypes.Email(result.Author.Email),
+				Fullname: result.Author.FullName,
+				Nickname: &result.Author.Nickname,
 			}
 		}
 		if result.Forum != nil {

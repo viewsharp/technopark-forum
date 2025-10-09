@@ -33,7 +33,7 @@ func NewUsecaseSet(db DB, queries *db.Queries) *UsecaseSet {
 		forum:  &forum.Usecase{DB: db, Queries: queries},
 		post:   &post.Usecase{DB: db, Queries: queries},
 		thread: &thread.Usecase{DB: db},
-		user:   &user.Usecase{DB: db},
+		user:   &user.Usecase{DB: db, Queries: queries},
 		vote:   &vote.Usecase{DB: db},
 	}
 }

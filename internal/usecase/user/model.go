@@ -1,10 +1,10 @@
 package user
 
 type User struct {
+	Email    string  `json:"email"`
+	FullName string  `json:"fullname"`
+	Nickname string  `json:"nickname,omitempty"`
 	About    *string `json:"about,omitempty"`
-	Email    *string `json:"email"`
-	FullName *string `json:"fullname"`
-	Nickname *string `json:"nickname,omitempty"`
 }
 
 type Users []*User

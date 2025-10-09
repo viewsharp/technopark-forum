@@ -7,7 +7,48 @@ package db
 
 import (
 	"context"
+
+	"github.com/jackc/pgx/v5/pgtype"
 )
+
+const createUser = `-- name: CreateUser :exec
+INSERT INTO users (nickname, fullname, email, about)
+VALUES ($1, $2, $3, $4)
+`
+
+type CreateUserParams struct {
+	Nickname string
+	Fullname string
+	Email    string
+	About    pgtype.Text
+}
+
+func (q *Queries) CreateUser(ctx context.Context, arg CreateUserParams) error {
+	_, err := q.db.Exec(ctx, createUser,
+		arg.Nickname,
+		arg.Fullname,
+		arg.Email,
+		arg.About,
+	)
+	return err
+}
+
+const getUserByEmail = `-- name: GetUserByEmail :one
+SELECT id, nickname, fullname, email, about FROM users WHERE email = $1
+`
+
+func (q *Queries) GetUserByEmail(ctx context.Context, email string) (User, error) {
+	row := q.db.QueryRow(ctx, getUserByEmail, email)
+	var i User
+	err := row.Scan(
+		&i.ID,
+		&i.Nickname,
+		&i.Fullname,
+		&i.Email,
+		&i.About,
+	)
+	return i, err
+}
 
 const getUserByNickname = `-- name: GetUserByNickname :one
 SELECT id, nickname, fullname, email, about FROM users WHERE nickname = $1
@@ -15,6 +56,40 @@ SELECT id, nickname, fullname, email, about FROM users WHERE nickname = $1
 
 func (q *Queries) GetUserByNickname(ctx context.Context, nickname string) (User, error) {
 	row := q.db.QueryRow(ctx, getUserByNickname, nickname)
+	var i User
+	err := row.Scan(
+		&i.ID,
+		&i.Nickname,
+		&i.Fullname,
+		&i.Email,
+		&i.About,
+	)
+	return i, err
+}
+
+const updateUserByNickname = `-- name: UpdateUserByNickname :one
+UPDATE users
+SET fullname = COALESCE($1, fullname),
+    email = COALESCE($2, email),
+    about = COALESCE($3, about)
+WHERE nickname = $4
+RETURNING id, nickname, fullname, email, about
+`
+
+type UpdateUserByNicknameParams struct {
+	Fullname pgtype.Text
+	Email    pgtype.Text
+	About    pgtype.Text
+	Nickname string
+}
+
+func (q *Queries) UpdateUserByNickname(ctx context.Context, arg UpdateUserByNicknameParams) (User, error) {
+	row := q.db.QueryRow(ctx, updateUserByNickname,
+		arg.Fullname,
+		arg.Email,
+		arg.About,
+		arg.Nickname,
+	)
 	var i User
 	err := row.Scan(
 		&i.ID,
