@@ -86,9 +86,9 @@ func (r *PostRepository) add(ctx context.Context, posts []domain.Post, threadId 
 		}
 
 		postsParams = append(postsParams, db.CreatePostsParams{
-			Message:  *post.Message,
+			Message:  post.Message,
 			ParentID: parentID,
-			UserNn:   *post.Author,
+			UserNn:   post.Author,
 			ThreadID: threadId,
 			Path:     path,
 		})
@@ -111,10 +111,10 @@ func (r *PostRepository) add(ctx context.Context, posts []domain.Post, threadId 
 			return
 		}
 
-		posts[i].Author = &post.UserNn
+		posts[i].Message = post.Message
+		posts[i].Author = post.UserNn
 		posts[i].Created = &post.Created.Time
 		posts[i].Id = &post.ID
-		posts[i].Message = &post.Message
 		posts[i].Parent = &post.ParentID.Int64
 		posts[i].Thread = &post.ThreadID
 		posts[i].Forum = &forumSlug
@@ -129,7 +129,7 @@ func (r *PostRepository) add(ctx context.Context, posts []domain.Post, threadId 
 	for _, post := range posts {
 		forumUsersParams = append(forumUsersParams, db.CreateForumUserParams{
 			ForumSlug: forumSlug,
-			Nickname:  *post.Author,
+			Nickname:  post.Author,
 		})
 	}
 

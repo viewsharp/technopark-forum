@@ -3,13 +3,13 @@ package domain
 import "time"
 
 type Thread struct {
-	Author  *string
+	Title   string
+	Message string
+	Author  string
 	Created *time.Time
 	Forum   *string
 	Id      *int32
-	Message *string
 	Slug    *string
-	Title   *string
 	Votes   *int32
 }
 

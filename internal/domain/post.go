@@ -3,12 +3,12 @@ package domain
 import "time"
 
 type Post struct {
-	Author   *string
+	Message  string
+	Author   string
 	Created  *time.Time
 	Forum    *string
 	Id       *int64
 	IsEdited *bool
-	Message  *string
 	Parent   *int64
 	Thread   *int32
 }

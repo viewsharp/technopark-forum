@@ -1,0 +1,211 @@
+package controller
+
+import (
+	"fmt"
+	"strconv"
+	"time"
+
+	"github.com/gofiber/fiber/v2"
+
+	"github.com/viewsharp/technopark-forum/internal/api"
+	"github.com/viewsharp/technopark-forum/internal/domain"
+)
+
+// ThreadCreate implements api.ServerInterface
+func (s *Server) ThreadCreate(c *fiber.Ctx, slug string) error {
+	var thread api.Thread
+	if err := c.BodyParser(&thread); err != nil {
+		return c.Status(fiber.StatusBadRequest).JSON(api.Error{Message: ptrString(err.Error())})
+	}
+
+	ucThread := domain.Thread{
+		Title:   thread.Title,
+		Message: thread.Message,
+		Author:  thread.Author,
+		Created: thread.Created,
+		Forum:   &slug,
+		Slug:    thread.Slug,
+	}
+
+	err := s.sb.Thread.Add(c.Context(), &ucThread)
+	switch err {
+	case nil:
+		return c.Status(fiber.StatusCreated).JSON(api.Thread{
+			Title:   ucThread.Title,
+			Message: ucThread.Message,
+			Author:  ucThread.Author,
+			Created: ucThread.Created,
+			Forum:   ucThread.Forum,
+			Id:      ucThread.Id,
+			Slug:    ucThread.Slug,
+			Votes:   ucThread.Votes,
+		})
+	case domain.ErrUniqueViolation:
+		result, err := s.sb.Thread.BySlug(c.Context(), *thread.Slug)
+		if err == nil {
+			return c.Status(fiber.StatusConflict).JSON(api.Thread{
+				Title:   result.Title,
+				Message: result.Message,
+				Author:  result.Author,
+				Created: result.Created,
+				Forum:   result.Forum,
+				Id:      result.Id,
+				Slug:    result.Slug,
+				Votes:   result.Votes,
+			})
+		}
+	case domain.ErrThreadNotFoundUser:
+		return c.Status(fiber.StatusNotFound).JSON(api.Error{
+			Message: ptrString("Can't find thread author by nickname: " + thread.Author),
+		})
+	case domain.ErrThreadNotFoundForum:
+		return c.Status(fiber.StatusNotFound).JSON(api.Error{
+			Message: ptrString("Can't find thread forum by slug: " + slug),
+		})
+	}
+
+	return c.Status(fiber.StatusInternalServerError).JSON(api.Error{Message: ptrString(err.Error())})
+}
+
+// ForumGetThreads implements api.ServerInterface
+func (s *Server) ForumGetThreads(c *fiber.Ctx, slug string, params api.ForumGetThreadsParams) error {
+	var limit int32 = 100
+	if params.Limit != nil {
+		limit = *params.Limit
+	}
+
+	desc := false
+	if params.Desc != nil {
+		desc = *params.Desc
+	}
+
+	since := ""
+	if params.Since != nil {
+		since = params.Since.Format(time.RFC3339Nano)
+	}
+
+	result, err := s.sb.Thread.ByForumSlug(c.Context(), slug, desc, since, limit)
+
+	switch err {
+	case nil:
+		threads := make([]api.Thread, len(*result))
+		for i, t := range *result {
+			threads[i] = api.Thread{
+				Title:   t.Title,
+				Message: t.Message,
+				Author:  t.Author,
+				Created: t.Created,
+				Forum:   t.Forum,
+				Id:      t.Id,
+				Slug:    t.Slug,
+				Votes:   t.Votes,
+			}
+		}
+		return c.JSON(threads)
+	case domain.ErrThreadNotFoundForum:
+		return c.Status(fiber.StatusNotFound).JSON(api.Error{
+			Message: ptrString("Can't find forum by slug: " + slug),
+		})
+	}
+
+	return c.Status(fiber.StatusInternalServerError).JSON(api.Error{Message: ptrString(err.Error())})
+}
+
+// ThreadGetOne implements api.ServerInterface
+func (s *Server) ThreadGetOne(c *fiber.Ctx, slugOrId string) error {
+	var result *domain.Thread
+	var err error
+
+	threadId, threadIdParseErr := strconv.Atoi(slugOrId)
+	if threadIdParseErr == nil {
+		result, err = s.sb.Thread.ById(c.Context(), threadId)
+	} else {
+		result, err = s.sb.Thread.BySlug(c.Context(), slugOrId)
+	}
+
+	switch err {
+	case nil:
+		return c.JSON(api.Thread{
+			Title:   result.Title,
+			Message: result.Message,
+			Author:  result.Author,
+			Created: result.Created,
+			Forum:   result.Forum,
+			Id:      result.Id,
+			Slug:    result.Slug,
+			Votes:   result.Votes,
+		})
+	case domain.ErrNotFound:
+		if threadIdParseErr == nil {
+			return c.Status(fiber.StatusNotFound).JSON(api.Error{
+				Message: ptrString(fmt.Sprintf("Can't find thread by id: %d", threadId)),
+			})
+		} else {
+			return c.Status(fiber.StatusNotFound).JSON(api.Error{
+				Message: ptrString("Can't find thread by slug: " + slugOrId),
+			})
+		}
+	}
+
+	return c.Status(fiber.StatusInternalServerError).JSON(api.Error{Message: ptrString(err.Error())})
+}
+
+// ThreadUpdate implements api.ServerInterface
+func (s *Server) ThreadUpdate(c *fiber.Ctx, slugOrId string) error {
+	var update api.ThreadUpdate
+	if err := c.BodyParser(&update); err != nil {
+		return c.Status(fiber.StatusBadRequest).JSON(api.Error{Message: ptrString(err.Error())})
+	}
+
+	ucUpdate := domain.ThreadUpdate{
+		Message: update.Message,
+		Title:   update.Title,
+	}
+
+	threadId, threadIdErr := strconv.Atoi(slugOrId)
+	if threadIdErr == nil {
+		err := s.sb.Thread.UpdateById(c.Context(), threadId, &ucUpdate)
+		if err != nil {
+			return c.Status(fiber.StatusInternalServerError).JSON(api.Error{Message: ptrString(err.Error())})
+		}
+	} else {
+		err := s.sb.Thread.UpdateBySlug(c.Context(), slugOrId, &ucUpdate)
+		if err != nil {
+			return c.Status(fiber.StatusInternalServerError).JSON(api.Error{Message: ptrString(err.Error())})
+		}
+	}
+
+	var result *domain.Thread
+	var err error
+	if threadIdErr == nil {
+		result, err = s.sb.Thread.ById(c.Context(), threadId)
+	} else {
+		result, err = s.sb.Thread.BySlug(c.Context(), slugOrId)
+	}
+
+	switch err {
+	case nil:
+		return c.JSON(api.Thread{
+			Title:   result.Title,
+			Message: result.Message,
+			Author:  result.Author,
+			Created: result.Created,
+			Forum:   result.Forum,
+			Id:      result.Id,
+			Slug:    result.Slug,
+			Votes:   result.Votes,
+		})
+	case domain.ErrNotFound:
+		if threadIdErr == nil {
+			return c.Status(fiber.StatusNotFound).JSON(api.Error{
+				Message: ptrString(fmt.Sprintf("Can't find thread by id: %d", threadId)),
+			})
+		} else {
+			return c.Status(fiber.StatusNotFound).JSON(api.Error{
+				Message: ptrString("Can't find thread by slug: " + slugOrId),
+			})
+		}
+	}
+
+	return c.Status(fiber.StatusInternalServerError).JSON(api.Error{Message: ptrString(err.Error())})
+}

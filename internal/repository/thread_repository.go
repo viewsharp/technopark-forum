@@ -31,16 +31,16 @@ func (r *ThreadRepository) Add(ctx context.Context, thread *domain.Thread) error
 	}
 
 	var message pgtype.Text
-	if thread.Message != nil {
-		message = pgtype.Text{String: *thread.Message, Valid: true}
+	if thread.Message != "" {
+		message = pgtype.Text{String: thread.Message, Valid: true}
 	}
 
 	dbThread, err := r.Queries.CreateThread(ctx, db.CreateThreadParams{
 		Slug:    slug,
 		Created: created,
-		Title:   *thread.Title,
+		Title:   thread.Title,
 		Message: message,
-		UserNn:  *thread.Author,
+		UserNn:  thread.Author,
 		Slug_2:  *thread.Forum,
 	})
 
@@ -77,16 +77,15 @@ func (r *ThreadRepository) BySlug(ctx context.Context, slug string) (*domain.Thr
 
 	slugStr := dbThread.Slug.String
 	forumSlug := dbThread.ForumSlug
-	message := dbThread.Message.String
 	votes := dbThread.Votes.Int32
 
 	return &domain.Thread{
 		Id:      &dbThread.ID,
 		Slug:    &slugStr,
 		Created: &dbThread.Created.Time,
-		Title:   &dbThread.Title,
-		Message: &message,
-		Author:  &dbThread.UserNn,
+		Title:   dbThread.Title,
+		Message: dbThread.Message.String,
+		Author:  dbThread.UserNn,
 		Forum:   &forumSlug,
 		Votes:   &votes,
 	}, nil
@@ -103,16 +102,15 @@ func (r *ThreadRepository) ById(ctx context.Context, id int) (*domain.Thread, er
 
 	slugStr := dbThread.Slug.String
 	forumSlug := dbThread.ForumSlug
-	message := dbThread.Message.String
 	votes := dbThread.Votes.Int32
 
 	return &domain.Thread{
 		Id:      &dbThread.ID,
 		Slug:    &slugStr,
 		Created: &dbThread.Created.Time,
-		Title:   &dbThread.Title,
-		Message: &message,
-		Author:  &dbThread.UserNn,
+		Title:   dbThread.Title,
+		Message: dbThread.Message.String,
+		Author:  dbThread.UserNn,
 		Forum:   &forumSlug,
 		Votes:   &votes,
 	}, nil

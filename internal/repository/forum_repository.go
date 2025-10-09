@@ -18,7 +18,7 @@ type ForumRepository struct {
 }
 
 func (r *ForumRepository) Add(ctx context.Context, forum domain.Forum) (*domain.Forum, error) {
-	user, err := r.Queries.GetUserByNickname(ctx, *forum.User)
+	user, err := r.Queries.GetUserByNickname(ctx, forum.User)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return nil, domain.ErrForumNotFoundUser
@@ -27,8 +27,8 @@ func (r *ForumRepository) Add(ctx context.Context, forum domain.Forum) (*domain.
 	}
 
 	dbForum, err := r.Queries.CreateForum(ctx, db.CreateForumParams{
-		Slug:   *forum.Slug,
-		Title:  *forum.Title,
+		Slug:   forum.Slug,
+		Title:  forum.Title,
 		UserNn: user.Nickname,
 	})
 	if err != nil {
@@ -41,10 +41,10 @@ func (r *ForumRepository) Add(ctx context.Context, forum domain.Forum) (*domain.
 
 	return &domain.Forum{
 		Posts:   &dbForum.Posts.Int64,
-		Slug:    &dbForum.Slug,
+		Slug:    dbForum.Slug,
 		Threads: &dbForum.Threads.Int32,
-		Title:   &dbForum.Title,
-		User:    &dbForum.UserNn,
+		Title:   dbForum.Title,
+		User:    dbForum.UserNn,
 	}, nil
 }
 
@@ -58,9 +58,9 @@ func (r *ForumRepository) BySlug(ctx context.Context, slug string) (*domain.Foru
 	}
 
 	return &domain.Forum{
-		Slug:  &dbForum.Slug,
-		Title: &dbForum.Title,
-		User:  &dbForum.UserNn,
+		Slug:  dbForum.Slug,
+		Title: dbForum.Title,
+		User:  dbForum.UserNn,
 	}, nil
 }
 
@@ -75,9 +75,9 @@ func (r *ForumRepository) FullBySlug(ctx context.Context, slug string) (*domain.
 
 	return &domain.Forum{
 		Posts:   &dbForum.Posts.Int64,
-		Slug:    &dbForum.Slug,
+		Slug:    dbForum.Slug,
 		Threads: &dbForum.Threads.Int32,
-		Title:   &dbForum.Title,
-		User:    &dbForum.UserNn,
+		Title:   dbForum.Title,
+		User:    dbForum.UserNn,
 	}, nil
 }
