@@ -43,3 +43,19 @@ func (q *Queries) ListByID(ctx context.Context, dollar_1 []int64) ([]Post, error
 	}
 	return items, nil
 }
+
+const updatePostMessage = `-- name: UpdatePostMessage :exec
+UPDATE posts 
+SET message = $1, isedited = TRUE
+WHERE id = $2
+`
+
+type UpdatePostMessageParams struct {
+	Message string
+	ID      int64
+}
+
+func (q *Queries) UpdatePostMessage(ctx context.Context, arg UpdatePostMessageParams) error {
+	_, err := q.db.Exec(ctx, updatePostMessage, arg.Message, arg.ID)
+	return err
+}

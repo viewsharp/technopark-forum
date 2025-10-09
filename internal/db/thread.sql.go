@@ -11,6 +11,61 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 )
 
+const checkThreadExistsById = `-- name: CheckThreadExistsById :one
+SELECT id FROM threads WHERE id = $1
+`
+
+func (q *Queries) CheckThreadExistsById(ctx context.Context, id int32) (int32, error) {
+	row := q.db.QueryRow(ctx, checkThreadExistsById, id)
+	err := row.Scan(&id)
+	return id, err
+}
+
+const checkThreadExistsBySlug = `-- name: CheckThreadExistsBySlug :one
+SELECT slug FROM threads WHERE slug = $1
+`
+
+func (q *Queries) CheckThreadExistsBySlug(ctx context.Context, slug pgtype.Text) (pgtype.Text, error) {
+	row := q.db.QueryRow(ctx, checkThreadExistsBySlug, slug)
+	err := row.Scan(&slug)
+	return slug, err
+}
+
+const createThread = `-- name: CreateThread :one
+INSERT INTO threads (slug, created, title, message, user_nn, forum_slug)
+VALUES ($1, $2, $3, $4, $5, (SELECT f.slug FROM forums f WHERE f.slug = $6))
+RETURNING id, forum_slug, slug
+`
+
+type CreateThreadParams struct {
+	Slug    pgtype.Text
+	Created pgtype.Timestamptz
+	Title   string
+	Message pgtype.Text
+	UserNn  string
+	Slug_2  string
+}
+
+type CreateThreadRow struct {
+	ID        int32
+	ForumSlug string
+	Slug      pgtype.Text
+}
+
+func (q *Queries) CreateThread(ctx context.Context, arg CreateThreadParams) (CreateThreadRow, error) {
+	row := q.db.QueryRow(ctx, createThread,
+		arg.Slug,
+		arg.Created,
+		arg.Title,
+		arg.Message,
+		arg.UserNn,
+		arg.Slug_2,
+	)
+	var i CreateThreadRow
+	err := row.Scan(&i.ID, &i.ForumSlug, &i.Slug)
+	return i, err
+}
+
 const getThreadByID = `-- name: GetThreadByID :one
 SELECT id, slug, created, title, message, votes, user_nn, forum_slug
 FROM threads
@@ -53,4 +108,40 @@ func (q *Queries) GetThreadBySlug(ctx context.Context, slug pgtype.Text) (Thread
 		&i.ForumSlug,
 	)
 	return i, err
+}
+
+const updateThreadById = `-- name: UpdateThreadById :exec
+UPDATE threads 
+SET title = COALESCE($2, title), 
+    message = COALESCE($3, message)
+WHERE id = $1
+`
+
+type UpdateThreadByIdParams struct {
+	ID      int32
+	Title   pgtype.Text
+	Message pgtype.Text
+}
+
+func (q *Queries) UpdateThreadById(ctx context.Context, arg UpdateThreadByIdParams) error {
+	_, err := q.db.Exec(ctx, updateThreadById, arg.ID, arg.Title, arg.Message)
+	return err
+}
+
+const updateThreadBySlug = `-- name: UpdateThreadBySlug :exec
+UPDATE threads 
+SET title = COALESCE($2, title), 
+    message = COALESCE($3, message)
+WHERE slug = $1
+`
+
+type UpdateThreadBySlugParams struct {
+	Slug    pgtype.Text
+	Title   pgtype.Text
+	Message pgtype.Text
+}
+
+func (q *Queries) UpdateThreadBySlug(ctx context.Context, arg UpdateThreadBySlugParams) error {
+	_, err := q.db.Exec(ctx, updateThreadBySlug, arg.Slug, arg.Title, arg.Message)
+	return err
 }

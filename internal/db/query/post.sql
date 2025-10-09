@@ -7,3 +7,8 @@ RETURNING *;
 SELECT *
 FROM posts
 WHERE id = ANY($1::bigint[]);
+
+-- name: UpdatePostMessage :exec
+UPDATE posts 
+SET message = $1, isedited = TRUE
+WHERE id = $2;

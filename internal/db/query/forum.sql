@@ -8,6 +8,14 @@ SELECT *
 FROM forums
 WHERE slug = $1;
 
+-- name: GetForumBySlugLight :one
+SELECT slug, title, user_nn 
+FROM forums 
+WHERE slug = $1;
+
+-- name: CheckForumExists :one
+SELECT slug FROM forums WHERE slug = $1;
+
 -- name: IncreasePostsCount :exec
 UPDATE forums
 SET posts = posts + sqlc.arg(new_posts_count)::INT

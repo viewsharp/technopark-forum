@@ -9,6 +9,16 @@ import (
 	"context"
 )
 
+const checkForumExists = `-- name: CheckForumExists :one
+SELECT slug FROM forums WHERE slug = $1
+`
+
+func (q *Queries) CheckForumExists(ctx context.Context, slug string) (string, error) {
+	row := q.db.QueryRow(ctx, checkForumExists, slug)
+	err := row.Scan(&slug)
+	return slug, err
+}
+
 const createForum = `-- name: CreateForum :one
 INSERT INTO forums (slug, title, user_nn)
 VALUES ($1, $2, $3)
@@ -50,6 +60,25 @@ func (q *Queries) GetForumBySlug(ctx context.Context, slug string) (Forum, error
 		&i.Posts,
 		&i.Threads,
 	)
+	return i, err
+}
+
+const getForumBySlugLight = `-- name: GetForumBySlugLight :one
+SELECT slug, title, user_nn 
+FROM forums 
+WHERE slug = $1
+`
+
+type GetForumBySlugLightRow struct {
+	Slug   string
+	Title  string
+	UserNn string
+}
+
+func (q *Queries) GetForumBySlugLight(ctx context.Context, slug string) (GetForumBySlugLightRow, error) {
+	row := q.db.QueryRow(ctx, getForumBySlugLight, slug)
+	var i GetForumBySlugLightRow
+	err := row.Scan(&i.Slug, &i.Title, &i.UserNn)
 	return i, err
 }
 
