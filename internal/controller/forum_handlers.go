@@ -1,6 +1,8 @@
 package controller
 
 import (
+	"errors"
+
 	"github.com/gofiber/fiber/v2"
 
 	"github.com/viewsharp/technopark-forum/internal/api"
@@ -23,13 +25,13 @@ func (s *Server) ForumCreate(c *fiber.Ctx) error {
 
 	createdForum, err := s.sb.Forum.Add(c.Context(), ucForum)
 	if err != nil {
-		switch err {
-		case domain.ErrUniqueViolation:
+		if errors.Is(err, domain.ErrUniqueViolation) {
 			result, err := s.sb.Forum.BySlug(c.Context(), forum.Slug)
 			if err == nil {
 				return c.Status(fiber.StatusConflict).JSON(domainForumToAPI(result))
 			}
-		case domain.ErrForumNotFoundUser:
+		}
+		if errors.Is(err, domain.ErrForumNotFoundUser) {
 			return c.Status(fiber.StatusNotFound).JSON(api.Error{
 				Message: ptrString("Can't find user with nickname: " + forum.User),
 			})
@@ -43,15 +45,14 @@ func (s *Server) ForumCreate(c *fiber.Ctx) error {
 // ForumGetOne implements api.ServerInterface
 func (s *Server) ForumGetOne(c *fiber.Ctx, slug string) error {
 	result, err := s.sb.Forum.FullBySlug(c.Context(), slug)
-
-	switch err {
-	case nil:
-		return c.JSON(domainForumToAPI(result))
-	case domain.ErrNotFound:
-		return c.Status(fiber.StatusNotFound).JSON(api.Error{
-			Message: ptrString("Can't find forum by slug: " + slug),
-		})
+	if err != nil {
+		if errors.Is(err, domain.ErrNotFound) {
+			return c.Status(fiber.StatusNotFound).JSON(api.Error{
+				Message: ptrString("Can't find forum by slug: " + slug),
+			})
+		}
+		return c.Status(fiber.StatusInternalServerError).JSON(api.Error{Message: ptrString(err.Error())})
 	}
 
-	return c.Status(fiber.StatusInternalServerError).JSON(api.Error{Message: ptrString(err.Error())})
+	return c.JSON(domainForumToAPI(result))
 }

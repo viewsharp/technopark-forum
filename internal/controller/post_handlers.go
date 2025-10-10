@@ -28,22 +28,21 @@ func (s *Server) PostsCreate(c *fiber.Ctx, slugOrId string) error {
 			_, err = s.sb.Thread.BySlug(c.Context(), slugOrId)
 		}
 
-		switch err {
-		case nil:
-			return c.Status(fiber.StatusCreated).JSON(posts)
-		case domain.ErrNotFound:
-			if threadIdParseErr == nil {
-				return c.Status(fiber.StatusNotFound).JSON(api.Error{
-					Message: ptrString(fmt.Sprintf("Can't find post thread by id: %d", threadId)),
-				})
-			} else {
-				return c.Status(fiber.StatusNotFound).JSON(api.Error{
-					Message: ptrString("Can't find post thread by slug: " + slugOrId),
-				})
+		if err != nil {
+			if errors.Is(err, domain.ErrNotFound) {
+				if threadIdParseErr == nil {
+					return c.Status(fiber.StatusNotFound).JSON(api.Error{
+						Message: ptrString(fmt.Sprintf("Can't find post thread by id: %d", threadId)),
+					})
+				} else {
+					return c.Status(fiber.StatusNotFound).JSON(api.Error{
+						Message: ptrString("Can't find post thread by slug: " + slugOrId),
+					})
+				}
 			}
+			return c.Status(fiber.StatusInternalServerError).JSON(api.Error{Message: ptrString(err.Error())})
 		}
-
-		return c.Status(fiber.StatusInternalServerError).JSON(api.Error{Message: ptrString(err.Error())})
+		return c.Status(fiber.StatusCreated).JSON(posts)
 	}
 
 	// Convert api.Post to domain.Post
@@ -109,17 +108,15 @@ func (s *Server) PostGetOne(c *fiber.Ctx, id int64, params api.PostGetOneParams)
 	}
 
 	result, err := s.sb.Post.ById(c.Context(), id, related)
-
-	switch err {
-	case nil:
-		return c.JSON(domainPostFullToAPI(result))
-	case domain.ErrNotFound:
-		return c.Status(fiber.StatusNotFound).JSON(api.Error{
-			Message: ptrString("Can't find user by nickname: "),
-		})
+	if err != nil {
+		if errors.Is(err, domain.ErrNotFound) {
+			return c.Status(fiber.StatusNotFound).JSON(api.Error{
+				Message: ptrString("Can't find user by nickname"),
+			})
+		}
+		return c.Status(fiber.StatusInternalServerError).JSON(api.Error{Message: ptrString(err.Error())})
 	}
-
-	return c.Status(fiber.StatusInternalServerError).JSON(api.Error{Message: ptrString(err.Error())})
+	return c.JSON(domainPostFullToAPI(result))
 }
 
 // ThreadGetPosts implements api.ServerInterface
@@ -169,22 +166,22 @@ func (s *Server) ThreadGetPosts(c *fiber.Ctx, slugOrId string, params api.Thread
 		}
 	}
 
-	switch err {
-	case nil:
-		return c.JSON(domainPostsToAPI(ucPosts))
-	case domain.ErrPostNotFoundThread:
-		if threadIdParseErr == nil {
-			return c.Status(fiber.StatusNotFound).JSON(api.Error{
-				Message: ptrString(fmt.Sprintf("Can't find thread by slug: %d", threadId)),
-			})
-		} else {
-			return c.Status(fiber.StatusNotFound).JSON(api.Error{
-				Message: ptrString("Can't find thread by slug: " + slugOrId),
-			})
+	if err != nil {
+		if errors.Is(err, domain.ErrPostNotFoundThread) {
+			if threadIdParseErr == nil {
+				return c.Status(fiber.StatusNotFound).JSON(api.Error{
+					Message: ptrString(fmt.Sprintf("Can't find thread by slug: %d", threadId)),
+				})
+			} else {
+				return c.Status(fiber.StatusNotFound).JSON(api.Error{
+					Message: ptrString("Can't find thread by slug: " + slugOrId),
+				})
+			}
 		}
+		return c.Status(fiber.StatusInternalServerError).JSON(api.Error{Message: ptrString(err.Error())})
 	}
+	return c.JSON(domainPostsToAPI(ucPosts))
 
-	return c.Status(fiber.StatusInternalServerError).JSON(api.Error{Message: ptrString(err.Error())})
 }
 
 // PostUpdate implements api.ServerInterface
@@ -199,25 +196,24 @@ func (s *Server) PostUpdate(c *fiber.Ctx, id int64) error {
 	}
 
 	result, err := s.sb.Post.ById(c.Context(), id, nil)
-	switch err {
-	case nil:
-		var updateErr error
-		if update.Message != nil {
-			if result.Post.Message != *update.Message {
-				updateErr = s.sb.Post.UpdateById(c.Context(), id, ucUpdate)
-				result.Post.IsEdited = ptrBool(true)
-				result.Post.Message = *update.Message
-			}
+	if err != nil {
+		if errors.Is(err, domain.ErrNotFound) {
+			return c.Status(fiber.StatusNotFound).JSON(api.Error{
+				Message: ptrString(fmt.Sprintf("Can't find post with id: %d", id)),
+			})
 		}
-
-		if updateErr == nil {
-			return c.JSON(domainPostToAPI(result.Post))
-		}
-	case domain.ErrNotFound:
-		return c.Status(fiber.StatusNotFound).JSON(api.Error{
-			Message: ptrString(fmt.Sprintf("Can't find post with id: %d", id)),
-		})
+		return c.Status(fiber.StatusInternalServerError).JSON(api.Error{Message: ptrString(err.Error())})
 	}
 
-	return c.Status(fiber.StatusInternalServerError).JSON(api.Error{Message: ptrString(err.Error())})
+	if update.Message != nil && result.Post.Message != *update.Message {
+		err = s.sb.Post.UpdateById(c.Context(), id, ucUpdate)
+		if err != nil {
+			return c.Status(fiber.StatusInternalServerError).JSON(api.Error{Message: ptrString(err.Error())})
+		}
+
+		result.Post.IsEdited = ptrBool(true)
+		result.Post.Message = *update.Message
+	}
+
+	return c.JSON(domainPostToAPI(result.Post))
 }

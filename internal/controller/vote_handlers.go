@@ -1,6 +1,7 @@
 package controller
 
 import (
+	"errors"
 	"strconv"
 
 	"github.com/gofiber/fiber/v2"
@@ -21,47 +22,37 @@ func (s *Server) ThreadVote(c *fiber.Ctx, slugOrId string) error {
 		Voice:    &vote.Voice,
 	}
 
-	var result *domain.Thread
-	threadId, err := strconv.Atoi(slugOrId)
+	threadId, threadIdParseErr := strconv.Atoi(slugOrId)
 
-	if err == nil {
+	var err error
+	if threadIdParseErr == nil {
 		err = s.sb.Vote.AddByThreadId(c.Context(), &ucVote, threadId)
-		switch err {
-		case nil:
-			result, err = s.sb.Thread.ById(c.Context(), threadId)
-		case domain.ErrVoteNotFoundThread:
-			return c.Status(fiber.StatusNotFound).JSON(api.Error{
-				Message: ptrString("Can't find user by nickname: " + vote.Nickname),
-			})
-		case domain.ErrVoteNotFoundUser:
-			return c.Status(fiber.StatusNotFound).JSON(api.Error{
-				Message: ptrString("Can't find user by nickname: " + vote.Nickname),
-			})
-		default:
-			return c.Status(fiber.StatusInternalServerError).JSON(api.Error{Message: ptrString(err.Error())})
-		}
 	} else {
 		err = s.sb.Vote.AddByThreadSlug(c.Context(), &ucVote, slugOrId)
-		switch err {
-		case nil:
-			result, err = s.sb.Thread.BySlug(c.Context(), slugOrId)
-		case domain.ErrVoteNotFoundThread:
+	}
+	if err != nil {
+		if errors.Is(err, domain.ErrVoteNotFoundThread) {
 			return c.Status(fiber.StatusNotFound).JSON(api.Error{
 				Message: ptrString("Can't find user by nickname: " + vote.Nickname),
 			})
-		case domain.ErrVoteNotFoundUser:
-			return c.Status(fiber.StatusNotFound).JSON(api.Error{
-				Message: ptrString("Can't find user by nickname: " + vote.Nickname),
-			})
-		default:
-			return c.Status(fiber.StatusInternalServerError).JSON(api.Error{Message: ptrString(err.Error())})
 		}
+		if errors.Is(err, domain.ErrVoteNotFoundUser) {
+			return c.Status(fiber.StatusNotFound).JSON(api.Error{
+				Message: ptrString("Can't find user by nickname: " + vote.Nickname),
+			})
+		}
+		return c.Status(fiber.StatusInternalServerError).JSON(api.Error{Message: ptrString(err.Error())})
 	}
 
-	switch err {
-	case nil:
-		return c.JSON(domainThreadToAPI(result))
+	var result *domain.Thread
+	if threadIdParseErr == nil {
+		result, err = s.sb.Thread.ById(c.Context(), threadId)
+	} else {
+		result, err = s.sb.Thread.BySlug(c.Context(), slugOrId)
+	}
+	if err != nil {
+		return c.Status(fiber.StatusInternalServerError).JSON(api.Error{Message: ptrString(err.Error())})
 	}
 
-	return c.Status(fiber.StatusInternalServerError).JSON(api.Error{Message: ptrString(err.Error())})
+	return c.JSON(domainThreadToAPI(result))
 }

@@ -1,6 +1,8 @@
 package controller
 
 import (
+	"errors"
+
 	"github.com/gofiber/fiber/v2"
 
 	"github.com/viewsharp/technopark-forum/internal/api"
@@ -22,51 +24,54 @@ func (s *Server) UserCreate(c *fiber.Ctx, nickname string) error {
 	}
 
 	err := s.sb.User.Add(c.Context(), &ucUser)
-	switch err {
-	case nil:
-		return c.Status(fiber.StatusCreated).JSON(api.User{
-			About:    user.About,
-			Email:    user.Email,
-			Fullname: user.Fullname,
-			Nickname: ptrString(nickname),
-		})
-	case domain.ErrUniqueViolation:
-		var result []api.User
+	if err != nil {
+		if errors.Is(err, domain.ErrUniqueViolation) {
+			var result []api.User
 
-		userByEmail, err := s.sb.User.ByEmail(c.Context(), string(user.Email))
-		if err == nil {
-			result = append(result, domainUserToAPI(userByEmail))
-		}
+			userByEmail, err := s.sb.User.ByEmail(c.Context(), string(user.Email))
+			if err != nil && !errors.Is(err, domain.ErrNotFound) {
+				return c.Status(fiber.StatusInternalServerError).JSON(api.Error{Message: ptrString(err.Error())})
+			}
 
-		userByNickname, err := s.sb.User.ByNickname(c.Context(), nickname)
-		if err == nil {
-			if userByEmail == nil {
-				result = append(result, domainUserToAPI(userByNickname))
-			} else if userByNickname.Nickname != userByEmail.Nickname {
+			userByNickname, err := s.sb.User.ByNickname(c.Context(), nickname)
+			if err != nil && !errors.Is(err, domain.ErrNotFound) {
+				return c.Status(fiber.StatusInternalServerError).JSON(api.Error{Message: ptrString(err.Error())})
+			}
+
+			if userByEmail != nil {
+				result = append(result, domainUserToAPI(userByEmail))
+			}
+			if userByNickname != nil && (userByEmail == nil || userByNickname.Nickname != userByEmail.Nickname) {
 				result = append(result, domainUserToAPI(userByNickname))
 			}
+
+			return c.Status(fiber.StatusConflict).JSON(result)
 		}
 
-		return c.Status(fiber.StatusConflict).JSON(result)
+		return c.Status(fiber.StatusInternalServerError).JSON(api.Error{Message: ptrString(err.Error())})
 	}
 
-	return c.Status(fiber.StatusInternalServerError).JSON(api.Error{Message: ptrString(err.Error())})
+	return c.Status(fiber.StatusCreated).JSON(api.User{
+		About:    user.About,
+		Email:    user.Email,
+		Fullname: user.Fullname,
+		Nickname: ptrString(nickname),
+	})
 }
 
 // UserGetOne implements api.ServerInterface
 func (s *Server) UserGetOne(c *fiber.Ctx, nickname string) error {
 	result, err := s.sb.User.ByNickname(c.Context(), nickname)
-
-	switch err {
-	case nil:
-		return c.JSON(domainUserToAPI(result))
-	case domain.ErrNotFound:
-		return c.Status(fiber.StatusNotFound).JSON(api.Error{
-			Message: ptrString("Can't find user by nickname: " + nickname),
-		})
+	if err != nil {
+		if errors.Is(err, domain.ErrNotFound) {
+			return c.Status(fiber.StatusNotFound).JSON(api.Error{
+				Message: ptrString("Can't find user by nickname: " + nickname),
+			})
+		}
+		return c.Status(fiber.StatusInternalServerError).JSON(api.Error{Message: ptrString(err.Error())})
 	}
 
-	return c.Status(fiber.StatusInternalServerError).JSON(api.Error{Message: ptrString(err.Error())})
+	return c.JSON(domainUserToAPI(result))
 }
 
 // UserUpdate implements api.ServerInterface
@@ -88,20 +93,21 @@ func (s *Server) UserUpdate(c *fiber.Ctx, nickname string) error {
 	}
 
 	user, err := s.sb.User.UpdateByNickname(c.Context(), nickname, &ucUpdate)
-
-	switch err {
-	case nil:
-		return c.JSON(domainUserToAPI(user))
-	case domain.ErrUniqueViolation:
-		return c.Status(fiber.StatusConflict).JSON(api.Error{
-			Message: ptrString("This email is already registered by user: " + string(*update.Email)),
-		})
-	case domain.ErrNotFound:
-		return c.Status(fiber.StatusNotFound).JSON(api.Error{
-			Message: ptrString("Can't find user by nickname: " + nickname),
-		})
+	if err != nil {
+		if errors.Is(err, domain.ErrUniqueViolation) {
+			return c.Status(fiber.StatusConflict).JSON(api.Error{
+				Message: ptrString("This email is already registered by user: " + string(*update.Email)),
+			})
+		}
+		if errors.Is(err, domain.ErrNotFound) {
+			return c.Status(fiber.StatusNotFound).JSON(api.Error{
+				Message: ptrString("Can't find user by nickname: " + nickname),
+			})
+		}
+		return c.Status(fiber.StatusInternalServerError).JSON(api.Error{Message: ptrString(err.Error())})
 	}
-	return c.Status(fiber.StatusInternalServerError).JSON(api.Error{Message: ptrString(err.Error())})
+
+	return c.JSON(domainUserToAPI(user))
 }
 
 // ForumGetUsers implements api.ServerInterface
@@ -122,15 +128,15 @@ func (s *Server) ForumGetUsers(c *fiber.Ctx, slug string, params api.ForumGetUse
 	}
 
 	result, err := s.sb.User.ByForumSlug(c.Context(), slug, desc, since, limit)
-
-	switch err {
-	case nil:
-		return c.JSON(domainUsersToAPI(result))
-	case domain.ErrUserNotFoundForum:
-		return c.Status(fiber.StatusNotFound).JSON(api.Error{
-			Message: ptrString("Can't find forum by slug: " + slug),
-		})
+	if err != nil {
+		if errors.Is(err, domain.ErrUserNotFoundForum) {
+			return c.Status(fiber.StatusNotFound).JSON(api.Error{
+				Message: ptrString("Can't find forum by slug: " + slug),
+			})
+		}
+		return c.Status(fiber.StatusInternalServerError).JSON(api.Error{Message: ptrString(err.Error())})
 	}
 
-	return c.Status(fiber.StatusInternalServerError).JSON(api.Error{Message: ptrString(err.Error())})
+	return c.JSON(domainUsersToAPI(result))
+
 }

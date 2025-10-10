@@ -67,6 +67,9 @@ func (r *UserRepository) ByNickname(ctx context.Context, nickname string) (*doma
 func (r *UserRepository) ByEmail(ctx context.Context, email string) (*domain.User, error) {
 	dbUser, err := r.Queries.GetUserByEmail(ctx, email)
 	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil, domain.ErrNotFound
+		}
 		return nil, fmt.Errorf("select user: %w", err)
 	}
 
