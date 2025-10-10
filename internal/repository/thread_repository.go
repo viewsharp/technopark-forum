@@ -4,8 +4,8 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"strings"
 
+	sq "github.com/Masterminds/squirrel"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgtype"
@@ -117,33 +117,34 @@ func (r *ThreadRepository) ById(ctx context.Context, id int) (*domain.Thread, er
 }
 
 func (r *ThreadRepository) ByForumSlug(ctx context.Context, slug string, desc bool, since string, limit int32) ([]domain.Thread, error) {
-	var queryBuilder strings.Builder
-	queryBuilder.WriteString(`	SELECT id, slug, created, title, message, user_nn, forum_slug, votes
-            						FROM threads t
-									WHERE forum_slug = $1`)
+	psql := sq.StatementBuilder.PlaceholderFormat(sq.Dollar)
+
+	query := psql.
+		Select("id", "slug", "created", "title", "message", "user_nn", "forum_slug", "votes").
+		From("threads").
+		Where(sq.Eq{"forum_slug": slug}).
+		Limit(uint64(limit))
 
 	if since != "" {
 		if desc {
-			queryBuilder.WriteString(" AND created <= $3")
+			query = query.Where(sq.LtOrEq{"created": since})
 		} else {
-			queryBuilder.WriteString(" AND created >= $3")
+			query = query.Where(sq.GtOrEq{"created": since})
 		}
 	}
 
-	queryBuilder.WriteString(" ORDER BY created")
 	if desc {
-		queryBuilder.WriteString(" DESC")
-	}
-
-	queryBuilder.WriteString(" LIMIT $2")
-
-	var rows pgx.Rows
-	var err error
-	if since == "" {
-		rows, err = r.DB.Query(ctx, queryBuilder.String(), slug, limit)
+		query = query.OrderBy("created DESC")
 	} else {
-		rows, err = r.DB.Query(ctx, queryBuilder.String(), slug, limit, since)
+		query = query.OrderBy("created")
 	}
+
+	sql, args, err := query.ToSql()
+	if err != nil {
+		return nil, fmt.Errorf("build query: %w", err)
+	}
+
+	rows, err := r.DB.Query(ctx, sql, args...)
 	if err != nil {
 		return nil, fmt.Errorf("select thread: %w", err)
 	}
@@ -171,7 +172,6 @@ func (r *ThreadRepository) ByForumSlug(ctx context.Context, slug string, desc bo
 	if err = rows.Err(); err != nil {
 		return nil, fmt.Errorf("scan threads: %w", err)
 	}
-	rows.Close()
 
 	if len(result) == 0 {
 		_, err = r.Queries.CheckForumExists(ctx, slug)

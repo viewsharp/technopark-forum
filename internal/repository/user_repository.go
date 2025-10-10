@@ -4,8 +4,8 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"strings"
 
+	sq "github.com/Masterminds/squirrel"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgtype"
@@ -124,36 +124,35 @@ func (r *UserRepository) UpdateByNickname(ctx context.Context, nickname string, 
 }
 
 func (r *UserRepository) ByForumSlug(ctx context.Context, slug string, desc bool, since string, limit int32) ([]domain.User, error) {
-	var queryBuilder strings.Builder
-	queryBuilder.WriteString(
-		"SELECT u.nickname, u.fullname, u.email, u.about " +
-			"FROM forum_user fu " +
-			"JOIN users u ON fu.user_id = u.id " +
-			"WHERE fu.forum_slug = $1")
+	psql := sq.StatementBuilder.PlaceholderFormat(sq.Dollar)
+
+	query := psql.
+		Select("u.nickname", "u.fullname", "u.email", "u.about").
+		From("forum_user fu").
+		Join("users u ON fu.user_id = u.id").
+		Where(sq.Eq{"fu.forum_slug": slug}).
+		Limit(uint64(limit))
 
 	if since != "" {
 		if desc {
-			queryBuilder.WriteString(" AND nickname < $3")
+			query = query.Where(sq.Lt{"u.nickname": since})
 		} else {
-			queryBuilder.WriteString(" AND nickname > $3")
+			query = query.Where(sq.Gt{"u.nickname": since})
 		}
 	}
 
-	queryBuilder.WriteString(" ORDER BY nickname")
 	if desc {
-		queryBuilder.WriteString(" DESC")
-	}
-
-	queryBuilder.WriteString(" LIMIT $2")
-
-	var rows pgx.Rows
-	var err error
-	if since == "" {
-		rows, err = r.DB.Query(ctx, queryBuilder.String(), slug, limit)
+		query = query.OrderBy("u.nickname DESC")
 	} else {
-		rows, err = r.DB.Query(ctx, queryBuilder.String(), slug, limit, since)
+		query = query.OrderBy("u.nickname")
 	}
 
+	sql, args, err := query.ToSql()
+	if err != nil {
+		return nil, fmt.Errorf("build query: %w", err)
+	}
+
+	rows, err := r.DB.Query(ctx, sql, args...)
 	if err != nil {
 		return nil, fmt.Errorf("select users: %w", err)
 	}
@@ -164,7 +163,7 @@ func (r *UserRepository) ByForumSlug(ctx context.Context, slug string, desc bool
 		var user domain.User
 		err = rows.Scan(&user.Nickname, &user.FullName, &user.Email, &user.About)
 		if err != nil {
-			return nil, fmt.Errorf("scan users %w", err)
+			return nil, fmt.Errorf("scan users: %w", err)
 		}
 
 		result = append(result, user)
@@ -173,7 +172,6 @@ func (r *UserRepository) ByForumSlug(ctx context.Context, slug string, desc bool
 	if err = rows.Err(); err != nil {
 		return nil, fmt.Errorf("scan users: %w", err)
 	}
-	rows.Close()
 
 	if len(result) == 0 {
 		_, err = r.Queries.CheckForumExists(ctx, slug)

@@ -6,8 +6,8 @@ import (
 	"fmt"
 	"maps"
 	"slices"
-	"strings"
 
+	sq "github.com/Masterminds/squirrel"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgtype"
@@ -161,33 +161,43 @@ func (r *PostRepository) ById(ctx context.Context, id int64, related []string) (
 	needThread := slices.Contains(related, "thread")
 	needForum := slices.Contains(related, "forum")
 
-	// Build dynamic query based on required relations
-	var queryBuilder strings.Builder
-	queryBuilder.WriteString("SELECT p.user_nn, p.created, p.id, p.isedited, p.message, p.parent_id, p.thread_id")
+	psql := sq.StatementBuilder.PlaceholderFormat(sq.Dollar)
 
+	// Build base query
+	query := psql.
+		Select("p.user_nn", "p.created", "p.id", "p.isedited", "p.message", "p.parent_id", "p.thread_id").
+		From("posts p").
+		Where(sq.Eq{"p.id": id})
+
+	// Add user fields if needed
 	if needUser {
-		queryBuilder.WriteString(", u.about, u.email, u.fullname, u.nickname")
-	}
-	if needThread {
-		queryBuilder.WriteString(", t.user_nn, t.created, t.id, t.message, t.slug, t.title, t.votes")
-	}
-	if needForum {
-		queryBuilder.WriteString(", f.posts, f.slug, f.threads, f.title, f.user_nn")
+		query = query.
+			Columns("u.about", "u.email", "u.fullname", "u.nickname").
+			Join("users u ON p.user_nn = u.nickname")
 	}
 
-	queryBuilder.WriteString(" FROM posts p")
-
-	if needUser {
-		queryBuilder.WriteString(" JOIN users u ON p.user_nn = u.nickname")
-	}
+	// Add thread join if needed for thread or forum
 	if needThread || needForum {
-		queryBuilder.WriteString(" JOIN threads t ON p.thread_id = t.id")
-	}
-	if needForum {
-		queryBuilder.WriteString(" JOIN forums f ON t.forum_slug = f.slug")
+		query = query.Join("threads t ON p.thread_id = t.id")
 	}
 
-	queryBuilder.WriteString(" WHERE p.id = $1")
+	// Add thread fields if needed
+	if needThread {
+		query = query.
+			Columns("t.user_nn", "t.created", "t.id", "t.message", "t.slug", "t.title", "t.votes")
+	}
+
+	// Add forum fields if needed
+	if needForum {
+		query = query.
+			Columns("f.posts", "f.slug", "f.threads", "f.title", "f.user_nn").
+			Join("forums f ON t.forum_slug = f.slug")
+	}
+
+	sql, args, err := query.ToSql()
+	if err != nil {
+		return nil, fmt.Errorf("build query: %w", err)
+	}
 
 	// Prepare scan destinations
 	var postObj domain.Post
@@ -236,7 +246,7 @@ func (r *PostRepository) ById(ctx context.Context, id int64, related []string) (
 	}
 
 	// Execute query
-	err := r.DB.QueryRow(ctx, queryBuilder.String(), id).Scan(scanDest...)
+	err = r.DB.QueryRow(ctx, sql, args...).Scan(scanDest...)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return nil, domain.ErrNotFound
@@ -295,168 +305,209 @@ func (r *PostRepository) UpdateById(ctx context.Context, id int64, post domain.P
 }
 
 func (r *PostRepository) FlatByThreadSlug(ctx context.Context, slug string, limit int32, desc bool, since int64) ([]domain.Post, error) {
-	var queryBuilder strings.Builder
-	queryBuilder.WriteString(`	SELECT p.user_nn, p.created, t.forum_slug, p.id, p.message, p.parent_id, p.thread_id
-										FROM posts p
-											JOIN threads t ON p.thread_id = t.id
-										WHERE t.slug = $1`)
+	psql := sq.StatementBuilder.PlaceholderFormat(sq.Dollar)
+
+	query := psql.
+		Select("p.user_nn", "p.created", "t.forum_slug", "p.id", "p.message", "p.parent_id", "p.thread_id").
+		From("posts p").
+		Join("threads t ON p.thread_id = t.id").
+		Where(sq.Eq{"t.slug": slug}).
+		Limit(uint64(limit))
 
 	if since != 0 {
 		if desc {
-			queryBuilder.WriteString(" AND p.id < $3")
+			query = query.Where(sq.Lt{"p.id": since})
 		} else {
-			queryBuilder.WriteString(" AND p.id > $3")
+			query = query.Where(sq.Gt{"p.id": since})
 		}
 	}
 
 	if desc {
-		queryBuilder.WriteString(" ORDER BY p.created DESC, p.id DESC LIMIT $2")
+		query = query.OrderBy("p.created DESC", "p.id DESC")
 	} else {
-		queryBuilder.WriteString(" ORDER BY p.created, p.id LIMIT $2")
+		query = query.OrderBy("p.created", "p.id")
 	}
 
-	return r.bySlug(ctx, queryBuilder.String(), slug, limit, since)
+	sql, args, err := query.ToSql()
+	if err != nil {
+		return nil, fmt.Errorf("build query: %w", err)
+	}
+
+	return r.executePostQuery(ctx, sql, args, slug, 0)
 }
 
 func (r *PostRepository) FlatByThreadId(ctx context.Context, id int, limit int32, desc bool, since int64) ([]domain.Post, error) {
-	var queryBuilder strings.Builder
-	queryBuilder.WriteString(`	SELECT p.user_nn, p.created, t.forum_slug, p.id, p.message, p.parent_id, p.thread_id
-										FROM posts p
-											JOIN threads t ON p.thread_id = t.id
-										WHERE t.id = $1`)
+	psql := sq.StatementBuilder.PlaceholderFormat(sq.Dollar)
+
+	query := psql.
+		Select("p.user_nn", "p.created", "t.forum_slug", "p.id", "p.message", "p.parent_id", "p.thread_id").
+		From("posts p").
+		Join("threads t ON p.thread_id = t.id").
+		Where(sq.Eq{"t.id": id}).
+		Limit(uint64(limit))
 
 	if since != 0 {
 		if desc {
-			queryBuilder.WriteString(" AND p.id < $3")
+			query = query.Where(sq.Lt{"p.id": since})
 		} else {
-			queryBuilder.WriteString(" AND p.id > $3")
+			query = query.Where(sq.Gt{"p.id": since})
 		}
 	}
 
 	if desc {
-		queryBuilder.WriteString(" ORDER BY p.created DESC, p.id DESC LIMIT $2")
+		query = query.OrderBy("p.created DESC", "p.id DESC")
 	} else {
-		queryBuilder.WriteString(" ORDER BY p.created, p.id LIMIT $2")
+		query = query.OrderBy("p.created", "p.id")
 	}
 
-	return r.byId(ctx, queryBuilder.String(), id, limit, since)
+	sql, args, err := query.ToSql()
+	if err != nil {
+		return nil, fmt.Errorf("build query: %w", err)
+	}
+
+	return r.executePostQuery(ctx, sql, args, "", id)
 }
 
 func (r *PostRepository) TreeByThreadSlug(ctx context.Context, slug string, limit int32, desc bool, since int64) ([]domain.Post, error) {
-	var queryBuilder strings.Builder
-	queryBuilder.WriteString(
-		`	SELECT p.user_nn, p.created, t.forum_slug, p.id, p.message, p.parent_id, p.thread_id
-    			FROM posts p JOIN threads t ON t.id = p.thread_id`,
-	)
+	psql := sq.StatementBuilder.PlaceholderFormat(sq.Dollar)
+
+	query := psql.
+		Select("p.user_nn", "p.created", "t.forum_slug", "p.id", "p.message", "p.parent_id", "p.thread_id").
+		From("posts p").
+		Join("threads t ON t.id = p.thread_id").
+		Where(sq.Eq{"t.slug": slug}).
+		Limit(uint64(limit))
 
 	if since != 0 {
+		query = query.Join("posts ON posts.id = ?", since)
 		if desc {
-			queryBuilder.WriteString(" JOIN posts ON posts.id = $3 WHERE p.path || p.id < posts.path || posts.id")
+			query = query.Where(sq.Expr("p.path || p.id < posts.path || posts.id"))
 		} else {
-			queryBuilder.WriteString(" JOIN posts ON posts.id = $3 WHERE p.path || p.id > posts.path || posts.id")
+			query = query.Where(sq.Expr("p.path || p.id > posts.path || posts.id"))
 		}
-		queryBuilder.WriteString(" AND t.slug = $1 ORDER BY p.path || p.id")
-	} else {
-		queryBuilder.WriteString(" WHERE t.slug = $1 ORDER BY p.path || p.id")
 	}
 
 	if desc {
-		queryBuilder.WriteString(" DESC")
+		query = query.OrderBy("p.path || p.id DESC")
+	} else {
+		query = query.OrderBy("p.path || p.id")
 	}
-	queryBuilder.WriteString(" LIMIT $2")
 
-	return r.bySlug(ctx, queryBuilder.String(), slug, limit, since)
+	sql, args, err := query.ToSql()
+	if err != nil {
+		return nil, fmt.Errorf("build query: %w", err)
+	}
+
+	return r.executePostQuery(ctx, sql, args, slug, 0)
 }
 
 func (r *PostRepository) TreeByThreadId(ctx context.Context, id int, limit int32, desc bool, since int64) ([]domain.Post, error) {
-	var queryBuilder strings.Builder
-	queryBuilder.WriteString(
-		`	SELECT p.user_nn, p.created, (SELECT forum_slug FROM threads WHERE id = $1), p.id, p.message, p.parent_id, p.thread_id
-    			FROM posts p`,
-	)
+	psql := sq.StatementBuilder.PlaceholderFormat(sq.Dollar)
+
+	query := psql.
+		Select("p.user_nn", "p.created").
+		Column(sq.Expr("(SELECT forum_slug FROM threads WHERE id = ?) AS forum_slug", id)).
+		Columns("p.id", "p.message", "p.parent_id", "p.thread_id").
+		From("posts p").
+		Where(sq.Eq{"p.thread_id": id}).
+		Limit(uint64(limit))
 
 	if since != 0 {
+		query = query.Join("posts ON posts.id = ?", since)
 		if desc {
-			queryBuilder.WriteString(" JOIN posts ON posts.id = $3 WHERE p.path || p.id < posts.path || posts.id")
+			query = query.Where(sq.Expr("p.path || p.id < posts.path || posts.id"))
 		} else {
-			queryBuilder.WriteString(" JOIN posts ON posts.id = $3 WHERE p.path || p.id > posts.path || posts.id")
+			query = query.Where(sq.Expr("p.path || p.id > posts.path || posts.id"))
 		}
-		queryBuilder.WriteString(" AND p.thread_id = $1 ORDER BY p.path || p.id")
-	} else {
-		queryBuilder.WriteString(" WHERE p.thread_id = $1 ORDER BY p.path || p.id")
 	}
 
 	if desc {
-		queryBuilder.WriteString(" DESC")
+		query = query.OrderBy("p.path || p.id DESC")
+	} else {
+		query = query.OrderBy("p.path || p.id")
 	}
-	queryBuilder.WriteString(" LIMIT $2")
 
-	return r.byId(ctx, queryBuilder.String(), id, limit, since)
+	sql, args, err := query.ToSql()
+	if err != nil {
+		return nil, fmt.Errorf("build query: %w", err)
+	}
+
+	return r.executePostQuery(ctx, sql, args, "", id)
 }
 
 func (r *PostRepository) ParentTreeByThreadSlug(ctx context.Context, slug string, limit int32, desc bool, since int64) ([]domain.Post, error) {
-	var queryBuilder strings.Builder
-	queryBuilder.WriteString("WITH ranked_posts AS (SELECT p.user_nn, p.created, t.forum_slug, p.id, p.message, p.parent_id, p.thread_id,p.path || p.id AS path,")
+	psql := sq.StatementBuilder.PlaceholderFormat(sq.Dollar)
 
+	// Build CTE rank expression
+	var rankExpr string
 	if desc {
-		queryBuilder.WriteString(" dense_rank() over (ORDER BY COALESCE(path [1], p.id) desc) AS rank")
+		rankExpr = "dense_rank() over (ORDER BY COALESCE(path[1], p.id) desc) AS rank"
 	} else {
-		queryBuilder.WriteString(" dense_rank() over (ORDER BY COALESCE(path [1], p.id)) AS rank")
+		rankExpr = "dense_rank() over (ORDER BY COALESCE(path[1], p.id)) AS rank"
 	}
-	queryBuilder.WriteString(
-		`	FROM posts p JOIN threads t on p.thread_id = t.id WHERE t.slug = $1)
-				SELECT p.user_nn, p.created, p.forum_slug, p.id, p.message, p.parent_id, p.thread_id 
-				FROM ranked_posts p`)
+
+	// Build main query
+	query := psql.
+		Select("p.user_nn", "p.created", "p.forum_slug", "p.id", "p.message", "p.parent_id", "p.thread_id").
+		Prefix("WITH ranked_posts AS (SELECT p.user_nn, p.created, t.forum_slug, p.id, p.message, p.parent_id, p.thread_id, p.path || p.id AS path, "+rankExpr+" FROM posts p JOIN threads t on p.thread_id = t.id WHERE t.slug = ?)", slug).
+		From("ranked_posts p").
+		OrderBy("p.rank", "p.path")
 
 	if since != 0 {
-		queryBuilder.WriteString(
-			`	JOIN ranked_posts posts ON posts.id = $3 
-				WHERE p.rank <= $2 + posts.rank AND (p.rank > posts.rank OR p.rank = posts.rank AND p.path > posts.path) 
-				ORDER BY p.rank, p.path`)
+		query = query.
+			JoinClause("JOIN ranked_posts posts ON posts.id = ?", since).
+			Where(sq.Expr("p.rank <= ? + posts.rank AND (p.rank > posts.rank OR p.rank = posts.rank AND p.path > posts.path)", limit))
 	} else {
-		queryBuilder.WriteString(" WHERE p.rank <= $2 ORDER BY p.rank, p.path")
+		query = query.
+			Where(sq.LtOrEq{"p.rank": limit})
 	}
 
-	return r.bySlug(ctx, queryBuilder.String(), slug, limit, since)
+	sql, args, err := query.ToSql()
+	if err != nil {
+		return nil, fmt.Errorf("build query: %w", err)
+	}
+
+	return r.executePostQuery(ctx, sql, args, slug, 0)
 }
 
 func (r *PostRepository) ParentTreeByThreadId(ctx context.Context, id int, limit int32, desc bool, since int64) ([]domain.Post, error) {
-	var queryBuilder strings.Builder
-	queryBuilder.WriteString("WITH ranked_posts AS (SELECT p.user_nn, p.created, t.forum_slug, p.id, p.message, p.parent_id, p.thread_id,p.path || p.id AS path,")
+	psql := sq.StatementBuilder.PlaceholderFormat(sq.Dollar)
 
+	// Build CTE rank expression
+	var rankExpr string
 	if desc {
-		queryBuilder.WriteString(" dense_rank() over (ORDER BY COALESCE(path [1], p.id) desc) AS rank")
+		rankExpr = "dense_rank() over (ORDER BY COALESCE(path[1], p.id) desc) AS rank"
 	} else {
-		queryBuilder.WriteString(" dense_rank() over (ORDER BY COALESCE(path [1], p.id)) AS rank")
+		rankExpr = "dense_rank() over (ORDER BY COALESCE(path[1], p.id)) AS rank"
 	}
-	queryBuilder.WriteString(
-		`	FROM posts p JOIN threads t on p.thread_id = t.id WHERE t.id = $1)
-				SELECT p.user_nn, p.created, p.forum_slug, p.id, p.message, p.parent_id, p.thread_id 
-				FROM ranked_posts p`)
+
+	// Build main query
+	query := psql.
+		Select("p.user_nn", "p.created", "p.forum_slug", "p.id", "p.message", "p.parent_id", "p.thread_id").
+		Prefix("WITH ranked_posts AS (SELECT p.user_nn, p.created, t.forum_slug, p.id, p.message, p.parent_id, p.thread_id, p.path || p.id AS path, "+rankExpr+" FROM posts p JOIN threads t on p.thread_id = t.id WHERE t.id = ?)", id).
+		From("ranked_posts p").
+		OrderBy("p.rank", "p.path")
 
 	if since != 0 {
-		queryBuilder.WriteString(
-			`	JOIN ranked_posts posts ON posts.id = $3 
-				WHERE p.rank <= $2 + posts.rank AND (p.rank > posts.rank OR p.rank = posts.rank AND p.path > posts.path) 
-				ORDER BY p.rank, p.path`)
+		query = query.
+			JoinClause("JOIN ranked_posts posts ON posts.id = ?", since).
+			Where(sq.Expr("p.rank <= ? + posts.rank AND (p.rank > posts.rank OR p.rank = posts.rank AND p.path > posts.path)", limit))
 	} else {
-		queryBuilder.WriteString(" WHERE p.rank <= $2 ORDER BY p.rank, p.path")
+		query = query.Where(sq.LtOrEq{"p.rank": limit})
 	}
 
-	return r.byId(ctx, queryBuilder.String(), id, limit, since)
+	sql, args, err := query.ToSql()
+	if err != nil {
+		return nil, fmt.Errorf("build query: %w", err)
+	}
+
+	return r.executePostQuery(ctx, sql, args, "", id)
 }
 
-func (r *PostRepository) byId(ctx context.Context, query string, id int, limit int32, since int64) ([]domain.Post, error) {
-	var rows pgx.Rows
-	var err error
-	if since != 0 {
-		rows, err = r.DB.Query(ctx, query, id, limit, since)
-	} else {
-		rows, err = r.DB.Query(ctx, query, id, limit)
-	}
-
+func (r *PostRepository) executePostQuery(ctx context.Context, query string, args []interface{}, slug string, threadId int) ([]domain.Post, error) {
+	rows, err := r.DB.Query(ctx, query, args...)
 	if err != nil {
-		return nil, fmt.Errorf("get post by id: %w", err)
+		return nil, fmt.Errorf("execute query: %w", err)
 	}
 	defer rows.Close()
 
@@ -472,50 +523,19 @@ func (r *PostRepository) byId(ctx context.Context, query string, id int, limit i
 	if err = rows.Err(); err != nil {
 		return nil, fmt.Errorf("scan posts: %w", err)
 	}
-	rows.Close()
 
 	if len(posts) == 0 {
-		_, err := r.Queries.CheckThreadExistsById(ctx, int32(id))
-		if err != nil {
-			return nil, domain.ErrPostNotFoundThread
-		}
-	}
-
-	return posts, nil
-}
-
-func (r *PostRepository) bySlug(ctx context.Context, query string, slug string, limit int32, since int64) ([]domain.Post, error) {
-	var rows pgx.Rows
-	var err error
-	if since != 0 {
-		rows, err = r.DB.Query(ctx, query, slug, limit, since)
-	} else {
-		rows, err = r.DB.Query(ctx, query, slug, limit)
-	}
-
-	if err != nil {
-		return nil, fmt.Errorf("get post by slug: %w", err)
-	}
-	defer rows.Close()
-
-	posts := make([]domain.Post, 0, 1)
-	for rows.Next() {
-		var post domain.Post
-		err = rows.Scan(&post.Author, &post.Created, &post.Forum, &post.Id, &post.Message, &post.Parent, &post.Thread)
-		if err != nil {
-			return nil, fmt.Errorf("get post by slug: %w", err)
-		}
-		posts = append(posts, post)
-	}
-	if err = rows.Err(); err != nil {
-		return nil, fmt.Errorf("scan posts: %w", err)
-	}
-	rows.Close()
-
-	if len(posts) == 0 {
-		_, err := r.Queries.CheckThreadExistsBySlug(ctx, pgtype.Text{String: slug, Valid: true})
-		if err != nil {
-			return nil, domain.ErrPostNotFoundThread
+		// Check if thread exists
+		if slug != "" {
+			_, err := r.Queries.CheckThreadExistsBySlug(ctx, pgtype.Text{String: slug, Valid: true})
+			if err != nil {
+				return nil, domain.ErrPostNotFoundThread
+			}
+		} else if threadId != 0 {
+			_, err := r.Queries.CheckThreadExistsById(ctx, int32(threadId))
+			if err != nil {
+				return nil, domain.ErrPostNotFoundThread
+			}
 		}
 	}
 
